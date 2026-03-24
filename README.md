@@ -69,6 +69,13 @@ rm -rf index_project.py search_code.py chroma_db/
 
 Then remove the block between `<!-- code-search:start -->` and `<!-- code-search:end -->` from `CLAUDE.md`, and remove the `chroma_db/` line from `.gitignore`.
 
+## Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `CODE_SEARCH_OWNER` | Override the GitHub username used to build the raw download URL. Useful if you fork this repo. Default: `jjveleber`. Example: `CODE_SEARCH_OWNER=myname bash install.sh` |
+| `CODE_SEARCH_LOCAL` | Copy scripts from a local directory instead of downloading via curl. Used by the integration test suite and for local development. Example: `CODE_SEARCH_LOCAL="." bash install.sh` |
+
 ## How It Works
 
 1. `git ls-files` enumerates all tracked files (respects `.gitignore` automatically)
