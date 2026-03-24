@@ -117,6 +117,22 @@ rm -rf "$FAKE_VENV"
 teardown
 
 echo ""
+echo "=== Test 7: VIRTUAL_ENV set, no .venv — installer creates .venv (ignores VIRTUAL_ENV) ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+FAKE_VENV="$(mktemp -d)"
+python3 -m venv "$FAKE_VENV" --without-pip 2>/dev/null || python3 -m venv "$FAKE_VENV"
+VIRTUAL_ENV="$FAKE_VENV"
+export VIRTUAL_ENV
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
+assert "project .venv created (VIRTUAL_ENV ignored)" "[ -d .venv ]"
+assert "CLAUDE.md uses .venv not VIRTUAL_ENV path" "! grep -q '$FAKE_VENV' CLAUDE.md"
+unset VIRTUAL_ENV
+rm -rf "$FAKE_VENV"
+teardown
+
+echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "All $PASS tests passed."
 else
