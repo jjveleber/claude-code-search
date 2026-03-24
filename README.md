@@ -12,7 +12,7 @@ Semantic code search for any project. Install with one command — Claude can th
 Run from the root of any project:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jjveleber/code-search/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/install.sh | bash
 ```
 
 This will:
@@ -58,7 +58,7 @@ Re-running the installer does not overwrite existing files (local edits are pres
 
 ```bash
 rm index_project.py search_code.py
-curl -fsSL https://raw.githubusercontent.com/jjveleber/code-search/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/install.sh | bash
 ```
 
 ## Uninstall
