@@ -149,3 +149,27 @@ def test_search_error_includes_original_exception(tmp_path):
     assert "project_code" in output, (
         f"Expected original exception detail in output, got: {output!r}"
     )
+
+
+def test_index_warns_on_unreadable_file(tmp_path):
+    """index_project.py prints a warning to stderr when a file cannot be decoded."""
+    import subprocess as _subprocess
+    shutil.copy("index_project.py", tmp_path / "index_project.py")
+    # Set up a minimal git repo with one binary (non-UTF-8) file
+    _subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+    _subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(tmp_path), check=True)
+    _subprocess.run(["git", "config", "user.name", "T"], cwd=str(tmp_path), check=True)
+    binary_file = tmp_path / "binary.bin"
+    binary_file.write_bytes(bytes(range(256)))
+    _subprocess.run(["git", "add", "."], cwd=str(tmp_path), check=True)
+    _subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=str(tmp_path), check=True)
+    result = _subprocess.run(
+        [sys.executable, "index_project.py"],
+        capture_output=True, text=True, cwd=str(tmp_path),
+    )
+    assert result.returncode == 0
+    output = result.stdout + result.stderr
+    assert "binary.bin" in output, f"Expected skipped-file warning mentioning binary.bin, got: {output!r}"
+    assert "warning" in output.lower() or "skipping" in output.lower(), (
+        f"Expected 'warning' or 'skipping' in output, got: {output!r}"
+    )
