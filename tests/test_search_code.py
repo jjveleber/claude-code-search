@@ -151,6 +151,40 @@ def test_search_error_includes_original_exception(tmp_path):
     )
 
 
+def test_index_reflects_edits(tmp_path):
+    """After editing a tracked file and re-indexing, the new content appears in the chroma store."""
+    import subprocess as _subprocess
+    shutil.copy("index_project.py", tmp_path / "index_project.py")
+    _subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+    _subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(tmp_path), check=True)
+    _subprocess.run(["git", "config", "user.name", "T"], cwd=str(tmp_path), check=True)
+
+    source_file = tmp_path / "hello.py"
+    source_file.write_text("def greet():\n    return 'hello'\n")
+    _subprocess.run(["git", "add", "."], cwd=str(tmp_path), check=True)
+    _subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=str(tmp_path), check=True)
+    _subprocess.run([sys.executable, "index_project.py"], cwd=str(tmp_path), check=True)
+
+    # Edit the file with a unique marker and re-commit so git tracks the change
+    source_file.write_text("def greet():\n    # UNIQUE_EDIT_MARKER_7X3Q\n    return 'hello'\n")
+    _subprocess.run(["git", "add", "hello.py"], cwd=str(tmp_path), check=True)
+    _subprocess.run(["git", "commit", "-q", "-m", "add marker"], cwd=str(tmp_path), check=True)
+
+    result = _subprocess.run(
+        [sys.executable, "index_project.py"],
+        capture_output=True, text=True, cwd=str(tmp_path),
+    )
+    assert result.returncode == 0
+    assert "upserted: 1" in result.stdout, f"Expected 1 chunk upserted, got: {result.stdout!r}"
+
+    client = chromadb.PersistentClient(path=str(tmp_path / "chroma_db"))
+    col = client.get_collection("project_code")
+    docs = col.get(where={"path": "hello.py"}, include=["documents"])["documents"]
+    assert any("UNIQUE_EDIT_MARKER_7X3Q" in doc for doc in docs), (
+        "Edit was not reflected in the index after re-indexing"
+    )
+
+
 def test_index_warns_on_unreadable_file(tmp_path):
     """index_project.py prints a warning to stderr when a file cannot be decoded."""
     import subprocess as _subprocess
