@@ -1,5 +1,6 @@
 import hashlib
 import subprocess
+import sys
 import chromadb
 from chromadb.utils import embedding_functions
 
@@ -84,7 +85,8 @@ def index_files():
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-        except (UnicodeDecodeError, OSError):
+        except (UnicodeDecodeError, OSError) as e:
+            print(f"  Warning: skipping {filepath} ({type(e).__name__})", file=sys.stderr)
             continue
 
         if not lines:
