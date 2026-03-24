@@ -34,12 +34,31 @@ def merge_chunks(results):
 def search(query, n_results=5):
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     emb_fn = embedding_functions.DefaultEmbeddingFunction()
-    collection = client.get_collection(
-        name=COLLECTION_NAME, embedding_function=emb_fn
+    try:
+        collection = client.get_collection(
+            name=COLLECTION_NAME, embedding_function=emb_fn
+        )
+    except Exception:
+        print(
+            "Error: no index found. Run 'python3 index_project.py' first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    count = collection.count()
+    if count == 0:
+        print("No results found.")
+        sys.exit(2)
+
+    results = collection.query(
+        query_texts=[query], n_results=min(n_results, count)
     )
-    results = collection.query(query_texts=[query], n_results=n_results)
 
     merged = merge_chunks(results)
+    if not merged:
+        print("No results found.")
+        sys.exit(2)
+
     for i, (path, start, end, text) in enumerate(merged, 1):
         print(f"MATCH {i}: {path} (lines {start}-{end})")
         print("-" * 40)

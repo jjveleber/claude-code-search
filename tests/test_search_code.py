@@ -1,5 +1,9 @@
 import sys
 import os
+import subprocess
+import shutil
+import chromadb
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from search_code import merge_chunks
@@ -71,3 +75,30 @@ def test_merge_chunks_consistent_types():
     merged = merge_chunks(results)
     for entry in merged:
         assert isinstance(entry, list), f"Expected list, got {type(entry)}"
+
+
+def run_search(args, cwd=None):
+    """Run search_code.py as a subprocess, return (returncode, stdout, stderr)."""
+    result = subprocess.run(
+        [sys.executable, "search_code.py"] + args,
+        capture_output=True, text=True, cwd=cwd or os.getcwd(),
+    )
+    return result.returncode, result.stdout, result.stderr
+
+
+def test_missing_index_exits_1(tmp_path):
+    """search_code.py exits 1 with a clear message when chroma_db doesn't exist."""
+    shutil.copy("search_code.py", tmp_path / "search_code.py")
+    rc, stdout, stderr = run_search(["any query"], cwd=str(tmp_path))
+    assert rc == 1
+    assert "index" in (stdout + stderr).lower()
+
+
+def test_no_results_exits_2(tmp_path):
+    """search_code.py exits 2 with 'No results found.' when index is empty."""
+    shutil.copy("search_code.py", tmp_path / "search_code.py")
+    # Create an empty chroma_db
+    chromadb.PersistentClient(path=str(tmp_path / "chroma_db")).get_or_create_collection("project_code")
+    rc, stdout, stderr = run_search(["any query"], cwd=str(tmp_path))
+    assert rc == 2
+    assert "no results" in (stdout + stderr).lower()
