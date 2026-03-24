@@ -100,10 +100,12 @@ else
     echo "Precision Protocol already in CLAUDE.md"
 fi
 
-# Step 8: Run first index
-if [ "$IS_GIT_REPO" = true ]; then
+# Step 8: Run first index (skip if index already exists)
+if [ "$IS_GIT_REPO" = true ] && [ ! -d "chroma_db" ]; then
     echo "Building initial index..."
     "$VENV_PATH/bin/python3" index_project.py
+elif [ "$IS_GIT_REPO" = true ]; then
+    echo "chroma_db index already exists, skipping"
 fi
 
 echo ""
