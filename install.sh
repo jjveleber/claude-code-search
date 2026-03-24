@@ -20,13 +20,16 @@ if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
 fi
 
 # Step 3: Detect or create venv
+# Priority: project .venv > active VIRTUAL_ENV > create new .venv
 VENV_EXISTED=false
-if [ -n "${VIRTUAL_ENV:-}" ]; then
-    VENV_PATH="$VIRTUAL_ENV"
-    VENV_EXISTED=true
-elif [ -d ".venv" ]; then
+if [ -d ".venv" ]; then
     VENV_PATH="$(pwd)/.venv"
     VENV_EXISTED=true
+elif [ -n "${VIRTUAL_ENV:-}" ]; then
+    VENV_PATH="$VIRTUAL_ENV"
+    VENV_EXISTED=true
+    echo "Warning: No .venv found — using active virtual environment at $VIRTUAL_ENV"
+    echo "         If this is not your project's venv, deactivate first and re-run."
 else
     echo "Creating .venv..."
     python3 -m venv .venv
