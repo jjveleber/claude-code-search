@@ -40,9 +40,9 @@ def search(query, n_results=5):
         collection = client.get_collection(
             name=COLLECTION_NAME, embedding_function=emb_fn
         )
-    except Exception:
+    except Exception as e:
         print(
-            "Error: no index found. Run 'python3 index_project.py' first.",
+            f"Error: no index found. Run 'python3 index_project.py' first. ({e})",
             file=sys.stderr,
         )
         sys.exit(1)

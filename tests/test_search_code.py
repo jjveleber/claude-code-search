@@ -132,3 +132,20 @@ def test_merge_chunks_overlap_exceeds_lines():
     merged = merge_chunks(results)
     assert len(merged) == 1
     assert "lineB1\n" in merged[0][3], "chunk B content was silently dropped"
+
+
+def test_search_error_includes_original_exception(tmp_path):
+    """When get_collection fails, the error message includes the original exception detail."""
+    shutil.copy("search_code.py", tmp_path / "search_code.py")
+    # Create chroma_db with a different collection name (not "project_code"),
+    # so get_collection("project_code") raises a "collection not found" exception.
+    chromadb.PersistentClient(path=str(tmp_path / "chroma_db")).get_or_create_collection("other")
+    rc, stdout, stderr = run_search(["any query"], cwd=str(tmp_path))
+    assert rc == 1
+    output = stdout + stderr
+    assert "index" in output.lower()
+    # ChromaDB's exception for missing collection includes the collection name.
+    # The fixed message should include it; the original static message does not.
+    assert "project_code" in output, (
+        f"Expected original exception detail in output, got: {output!r}"
+    )
