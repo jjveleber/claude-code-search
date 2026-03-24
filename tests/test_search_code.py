@@ -117,3 +117,18 @@ def test_usage_message_on_no_args():
     rc, stdout, stderr = run_search([])
     assert rc != 0
     assert "usage" in (stdout + stderr).lower()
+
+
+def test_merge_chunks_overlap_exceeds_lines():
+    """When overlap count exceeds chunk B's actual line count, content must not be silently dropped."""
+    # Chunk A: metadata says lines 1-20, but text only has 5 lines (metadata/text mismatch)
+    chunk_a = "".join(f"lineA{i}\n" for i in range(1, 6))   # 5 lines
+    # Chunk B: starts at line 3, overlaps with A (prev_end=20, start=3 → overlap=18 > len(chunk_b)=3)
+    chunk_b = "".join(f"lineB{i}\n" for i in range(1, 4))   # 3 lines
+    results = make_results([
+        ("f.py", 1, 20, chunk_a),
+        ("f.py", 3, 22, chunk_b),
+    ])
+    merged = merge_chunks(results)
+    assert len(merged) == 1
+    assert "lineB1\n" in merged[0][3], "chunk B content was silently dropped"

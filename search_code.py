@@ -23,6 +23,8 @@ def merge_chunks(results):
             prev_path, prev_start, prev_end, prev_text = merged[-1]
             overlap_line_count = max(0, prev_end - start + 1)
             text_lines = text.splitlines(keepends=True)
+            if overlap_line_count > len(text_lines):
+                overlap_line_count = 0
             new_text = prev_text + "".join(text_lines[overlap_line_count:])
             merged[-1] = [prev_path, prev_start, max(prev_end, end), new_text]
         else:
