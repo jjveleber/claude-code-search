@@ -24,13 +24,14 @@ assert() {
 setup() {
     TEST_DIR="$(mktemp -d)"
     cd "$TEST_DIR"
+    unset VIRTUAL_ENV
     git config --global user.email "test@test.com" 2>/dev/null || true
     git config --global user.name "Test" 2>/dev/null || true
 }
 
 teardown() {
     cd "$REPO_ROOT"
-    rm -rf "$TEST_DIR"
+    [ -n "${TEST_DIR:-}" ] && rm -rf "$TEST_DIR"
 }
 
 echo "=== Test 1: Fresh install into new git repo ==="
@@ -46,6 +47,8 @@ assert "CLAUDE.md created"            "[ -f CLAUDE.md ]"
 assert "Precision Protocol in CLAUDE.md" "grep -q 'code-search:start' CLAUDE.md"
 assert "venv created"                 "[ -d .venv ]"
 assert "chroma_db index built"        "[ -d chroma_db ]"
+assert "CLAUDE.md uses relative venv path"  "grep -q 'source .venv/bin/activate' CLAUDE.md"
+assert "CLAUDE.md does not start with blank line" "[ \"\$(head -c1 CLAUDE.md)\" != $'\n' ]"
 teardown
 
 echo ""
@@ -92,6 +95,25 @@ VENV_MTIME=$(stat -c %Y .venv 2>/dev/null || stat -f %m .venv)
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
 VENV_MTIME2=$(stat -c %Y .venv 2>/dev/null || stat -f %m .venv)
 assert "Existing .venv reused (mtime unchanged)" "[ '$VENV_MTIME' = '$VENV_MTIME2' ]"
+teardown
+
+echo ""
+echo "=== Test 6: VIRTUAL_ENV set but .venv exists — installer uses .venv ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+# Create a fake foreign venv to act as the active VIRTUAL_ENV
+FAKE_VENV="$(mktemp -d)"
+python3 -m venv "$FAKE_VENV" 2>/dev/null || python3 -m venv "$FAKE_VENV"
+VIRTUAL_ENV="$FAKE_VENV"
+export VIRTUAL_ENV
+# Create .venv before running install.sh
+python3 -m venv .venv 2>/dev/null || python3 -m venv .venv
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
+assert "chromadb installed in .venv (not foreign venv)" "[ -d .venv/lib ] && .venv/bin/python3 -c 'import chromadb' 2>/dev/null"
+assert "CLAUDE.md uses .venv not foreign path"         "! grep -q '$FAKE_VENV' CLAUDE.md"
+unset VIRTUAL_ENV
+rm -rf "$FAKE_VENV"
 teardown
 
 echo ""
