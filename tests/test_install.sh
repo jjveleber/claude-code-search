@@ -47,7 +47,7 @@ assert "CLAUDE.md created"            "[ -f CLAUDE.md ]"
 assert "Precision Protocol in CLAUDE.md" "grep -q 'code-search:start' CLAUDE.md"
 assert "venv created"                 "[ -d .venv ]"
 assert "chroma_db index built"        "[ -d chroma_db ]"
-assert "CLAUDE.md uses relative venv path"  "grep -q 'source .venv/bin/activate' CLAUDE.md"
+assert "CLAUDE.md search command uses .venv/bin/python3 (not 'source')"  "grep -q '.venv/bin/python3 search_code.py' CLAUDE.md"
 assert "CLAUDE.md does not start with blank line" "[ \"\$(head -c1 CLAUDE.md)\" != $'\n' ]"
 teardown
 
