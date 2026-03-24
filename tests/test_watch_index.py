@@ -89,3 +89,53 @@ def test_should_not_ignore_py_file():
 
 def test_should_not_ignore_nested_py_file():
     assert not should_ignore("src/utils/helpers.py")
+
+
+# ── DebounceReindexer ──────────────────────────────────────────────────────────
+
+def test_debounce_skips_if_subprocess_running(tmp_path, monkeypatch):
+    """_run() does not launch a new process if one is still running."""
+    monkeypatch.chdir(tmp_path)
+    reindexer = DebounceReindexer(cmd=["echo", "test"])
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None  # still running
+    reindexer._proc = mock_proc
+
+    with patch("watch_index.subprocess.Popen") as mock_popen:
+        reindexer._run()
+
+    mock_popen.assert_not_called()
+
+
+def test_debounce_launches_subprocess_when_idle(tmp_path, monkeypatch):
+    """_run() launches the command when no prior process is running."""
+    monkeypatch.chdir(tmp_path)
+    reindexer = DebounceReindexer(cmd=["echo", "test"])
+    assert reindexer._proc is None
+    reindexer._run()
+    assert reindexer._proc is not None
+
+
+def test_nonzero_exit_does_not_crash(tmp_path, monkeypatch):
+    """A failing index command does not crash the watcher."""
+    monkeypatch.chdir(tmp_path)
+    reindexer = DebounceReindexer(cmd=["python3", "-c", "import sys; sys.exit(1)"])
+    reindexer._run()  # must not raise
+    assert reindexer._proc is not None
+
+
+def test_debounce_collapses_rapid_triggers():
+    """Ten rapid trigger() calls result in exactly one _run() call."""
+    run_count = {"n": 0}
+    reindexer = DebounceReindexer(delay=0.05)
+
+    def counting_run():
+        run_count["n"] += 1
+
+    reindexer._run = counting_run
+
+    for _ in range(10):
+        reindexer.trigger()
+
+    time.sleep(0.2)
+    assert run_count["n"] == 1

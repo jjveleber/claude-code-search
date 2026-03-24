@@ -59,7 +59,37 @@ def should_ignore(path):
 
 
 class DebounceReindexer:
-    pass
+    """Collapses rapid file-change events into a single index_project.py run."""
+
+    def __init__(self, delay=DEBOUNCE_SECONDS, cmd=None):
+        self._delay = delay
+        self._cmd = cmd if cmd is not None else INDEX_CMD
+        self._timer = None
+        self._lock = threading.Lock()
+        self._proc = None
+
+    def trigger(self):
+        """Schedule a re-index, resetting any pending timer."""
+        with self._lock:
+            if self._timer is not None:
+                self._timer.cancel()
+            self._timer = threading.Timer(self._delay, self._run)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def _run(self):
+        """Run index_project.py unless a previous run is still in progress."""
+        with self._lock:
+            if self._proc is not None and self._proc.poll() is None:
+                _log("index already running, skipping trigger")
+                return
+            _log("change detected, re-indexing...")
+            with open(LOG_FILE, "a") as log_f:
+                self._proc = subprocess.Popen(
+                    self._cmd,
+                    stdout=log_f,
+                    stderr=subprocess.STDOUT,
+                )
 
 
 class ReindexHandler(FileSystemEventHandler):
