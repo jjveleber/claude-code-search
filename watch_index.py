@@ -93,7 +93,17 @@ class DebounceReindexer:
 
 
 class ReindexHandler(FileSystemEventHandler):
-    pass
+    """Watchdog event handler that forwards relevant events to DebounceReindexer."""
+
+    def __init__(self, reindexer):
+        self._reindexer = reindexer
+
+    def on_any_event(self, event):
+        if event.is_directory:
+            return
+        if should_ignore(event.src_path):
+            return
+        self._reindexer.trigger()
 
 
 def _log(msg):
@@ -102,7 +112,36 @@ def _log(msg):
 
 
 def main():
-    pass
+    if is_already_running():
+        try:
+            with open(PID_FILE) as f:
+                pid = f.read().strip()
+        except FileNotFoundError:
+            pid = "unknown"
+        print(f"watcher already running (PID: {pid})")
+        sys.exit(0)
+
+    write_pid()
+
+    def _cleanup(signum=None, frame=None):
+        cleanup_pid()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _cleanup)
+    signal.signal(signal.SIGTERM, _cleanup)
+
+    reindexer = DebounceReindexer()
+    handler = ReindexHandler(reindexer)
+    observer = Observer()
+    observer.schedule(handler, path=".", recursive=True)
+    observer.start()
+
+    print(f"Watching for changes. Log: {LOG_FILE}")
+
+    try:
+        observer.join()
+    finally:
+        _cleanup()
 
 
 if __name__ == "__main__":

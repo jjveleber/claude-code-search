@@ -139,3 +139,35 @@ def test_debounce_collapses_rapid_triggers():
 
     time.sleep(0.2)
     assert run_count["n"] == 1
+
+
+# ── ReindexHandler ─────────────────────────────────────────────────────────────
+
+def test_handler_ignores_directory_events():
+    reindexer = MagicMock()
+    handler = ReindexHandler(reindexer)
+    event = MagicMock()
+    event.is_directory = True
+    event.src_path = "somedir"
+    handler.on_any_event(event)
+    reindexer.trigger.assert_not_called()
+
+
+def test_handler_ignores_excluded_path():
+    reindexer = MagicMock()
+    handler = ReindexHandler(reindexer)
+    event = MagicMock()
+    event.is_directory = False
+    event.src_path = "chroma_db/index/data.bin"
+    handler.on_any_event(event)
+    reindexer.trigger.assert_not_called()
+
+
+def test_handler_triggers_for_regular_file():
+    reindexer = MagicMock()
+    handler = ReindexHandler(reindexer)
+    event = MagicMock()
+    event.is_directory = False
+    event.src_path = "index_project.py"
+    handler.on_any_event(event)
+    reindexer.trigger.assert_called_once()
