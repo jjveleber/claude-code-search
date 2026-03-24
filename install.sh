@@ -44,7 +44,7 @@ if [ "$VENV_EXISTED" = true ]; then
 fi
 
 # Step 4: Install chromadb
-"$VENV_PATH/bin/pip" install "chromadb>=1.0"
+"$VENV_PATH/bin/pip" install "chromadb>=1.0" "watchdog>=3.0"
 
 # Restore venv directory mtime to signal reuse (not recreation)
 if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
@@ -54,7 +54,7 @@ fi
 
 # Step 5: Download files (skip if already present)
 # CODE_SEARCH_LOCAL: if set, copy from that directory instead of curling (used for testing)
-for FILE in index_project.py search_code.py; do
+for FILE in index_project.py search_code.py watch_index.py; do
     if [ ! -f "$FILE" ]; then
         if [ -n "${CODE_SEARCH_LOCAL:-}" ]; then
             cp "${CODE_SEARCH_LOCAL}/$FILE" "./$FILE"
@@ -69,13 +69,23 @@ done
 
 # Step 6: Update .gitignore
 if [ ! -f ".gitignore" ]; then
-    printf "chroma_db/\n" > .gitignore
+    printf "chroma_db/\n.watch_index.log\n.watch_index.pid\n" > .gitignore
     echo "Created .gitignore"
-elif ! grep -qxF "chroma_db/" .gitignore; then
-    printf "\nchroma_db/\n" >> .gitignore
-    echo "Added chroma_db/ to .gitignore"
 else
-    echo "chroma_db/ already in .gitignore"
+    if ! grep -qxF "chroma_db/" .gitignore; then
+        printf "\nchroma_db/\n" >> .gitignore
+        echo "Added chroma_db/ to .gitignore"
+    else
+        echo "chroma_db/ already in .gitignore"
+    fi
+    for WATCH_IGNORE in ".watch_index.log" ".watch_index.pid"; do
+        if ! grep -qxF "$WATCH_IGNORE" .gitignore; then
+            printf "\n%s\n" "$WATCH_IGNORE" >> .gitignore
+            echo "Added $WATCH_IGNORE to .gitignore"
+        else
+            echo "$WATCH_IGNORE already in .gitignore"
+        fi
+    done
 fi
 
 # Step 7: Update CLAUDE.md with Precision Protocol
@@ -98,6 +108,22 @@ elif ! grep -qF "$SENTINEL" CLAUDE.md; then
     echo "Appended Precision Protocol to CLAUDE.md"
 else
     echo "Precision Protocol already in CLAUDE.md"
+fi
+
+# Step 7b: Add Session Startup section to CLAUDE.md
+WATCH_SENTINEL="<!-- code-search-watch:start -->"
+WATCH_BLOCK="<!-- code-search-watch:start -->
+## Session Startup
+At the start of each session:
+1. Run \`.venv/bin/python3 index_project.py\` to ensure the index is fresh
+2. Run \`.venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 &\` to start the watcher in the background
+<!-- code-search-watch:end -->"
+
+if ! grep -qF "$WATCH_SENTINEL" CLAUDE.md; then
+    printf "\n%s\n" "$WATCH_BLOCK" >> CLAUDE.md
+    echo "Appended Session Startup to CLAUDE.md"
+else
+    echo "Session Startup already in CLAUDE.md"
 fi
 
 # Step 8: Install PostToolUse hook into .claude/settings.local.json
@@ -155,4 +181,5 @@ echo ""
 echo "code-search installed successfully"
 echo "  Venv:     $VENV_PATH"
 echo "  Re-index: .venv/bin/python3 index_project.py"
+echo "  Watch:    .venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 &"
 echo "  Search:   .venv/bin/python3 search_code.py \"<query>\""
