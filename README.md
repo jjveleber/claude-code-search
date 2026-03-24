@@ -64,10 +64,15 @@ curl -fsSL https://raw.githubusercontent.com/jjveleber/code-search/main/install.
 ## Uninstall
 
 ```bash
-rm -rf index_project.py search_code.py chroma_db/
+rm -rf index_project.py search_code.py chroma_db/ .venv/
 ```
 
-Then remove the block between `<!-- code-search:start -->` and `<!-- code-search:end -->` from `CLAUDE.md`, and remove the `chroma_db/` line from `.gitignore`.
+> **Note:** Omit `.venv/` if it predated this installation (i.e. you brought your own virtual environment).
+
+Then:
+- Remove the block between `<!-- code-search:start -->` and `<!-- code-search:end -->` from `CLAUDE.md`
+- Remove the `chroma_db/` line from `.gitignore`
+- Remove the `PostToolUse` hook entry from `.claude/settings.local.json` (the entry with `"command": ".venv/bin/python3 index_project.py"`)
 
 ## Environment Variables
 
