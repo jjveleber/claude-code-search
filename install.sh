@@ -39,6 +39,7 @@ echo "Using venv: $VENV_PATH"
 # even though the venv was not recreated. touch -r is POSIX-portable (GNU + BSD).
 if [ "$VENV_EXISTED" = true ]; then
     _VENV_MTIME_REF=$(mktemp)
+    trap '[ -n "${_VENV_MTIME_REF:-}" ] && rm -f "$_VENV_MTIME_REF"' EXIT
     touch -r "$VENV_PATH" "$_VENV_MTIME_REF"
 fi
 
