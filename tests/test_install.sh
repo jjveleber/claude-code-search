@@ -47,7 +47,7 @@ assert "CLAUDE.md created"            "[ -f CLAUDE.md ]"
 assert "Precision Protocol in CLAUDE.md" "grep -q 'code-search:start' CLAUDE.md"
 assert "venv created"                 "[ -d .venv ]"
 assert "chroma_db index built"        "[ -d chroma_db ]"
-assert "CLAUDE.md uses relative venv path"  "grep -q 'source .venv/bin/activate' CLAUDE.md"
+assert "CLAUDE.md search command uses .venv/bin/python3 (not 'source')"  "grep -q '.venv/bin/python3 search_code.py' CLAUDE.md"
 assert "CLAUDE.md does not start with blank line" "[ \"\$(head -c1 CLAUDE.md)\" != $'\n' ]"
 teardown
 
@@ -143,6 +143,33 @@ SECOND_OUTPUT=$(CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh" 2>&1
 INDEX_MTIME2=$(stat -c %Y chroma_db 2>/dev/null || stat -f %m chroma_db)
 assert "chroma_db not rebuilt on re-install (mtime unchanged)" "[ '$INDEX_MTIME' = '$INDEX_MTIME2' ]"
 assert "second run reports index already exists" "echo '$SECOND_OUTPUT' | grep -q 'already exists'"
+teardown
+
+echo ""
+echo "=== Test 9: PostToolUse hook is correctly structured and /bin/sh-safe ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
+assert "settings.local.json created"              "[ -f .claude/settings.local.json ]"
+assert "hook nested under 'hooks' key (not root)" \
+    "python3 -c \"import json,sys; d=json.load(open('.claude/settings.local.json')); sys.exit(0 if 'hooks' in d and 'PostToolUse' in d.get('hooks',{}) else 1)\""
+assert "hook command uses .venv/bin/python3" \
+    "python3 -c \"import json,sys; d=json.load(open('.claude/settings.local.json')); cmd=d['hooks']['PostToolUse'][0]['hooks'][0]['command']; sys.exit(0 if '.venv/bin/python3' in cmd else 1)\""
+assert "hook command is /bin/sh-safe (no 'source')" \
+    "python3 -c \"import json,sys; d=json.load(open('.claude/settings.local.json')); cmd=d['hooks']['PostToolUse'][0]['hooks'][0]['command']; sys.exit(0 if 'source' not in cmd else 1)\""
+teardown
+
+echo ""
+echo "=== Test 10: CLAUDE.md Precision Protocol uses correct search command ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
+assert "CLAUDE.md search command uses .venv/bin/python3" \
+    "grep -q '.venv/bin/python3 search_code.py' CLAUDE.md"
+assert "CLAUDE.md search command does not misuse 'source' as a path prefix" \
+    "! grep -q 'source .venv/bin/python3' CLAUDE.md"
 teardown
 
 echo ""

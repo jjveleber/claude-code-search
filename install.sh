@@ -44,7 +44,7 @@ if [ "$VENV_EXISTED" = true ]; then
 fi
 
 # Step 4: Install chromadb
-"$VENV_PATH/bin/pip" install "chromadb>=1.0" --quiet
+"$VENV_PATH/bin/pip" install "chromadb>=1.0"
 
 # Restore venv directory mtime to signal reuse (not recreation)
 if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
@@ -82,7 +82,7 @@ fi
 SENTINEL="<!-- code-search:start -->"
 CLAUDE_BLOCK="<!-- code-search:start -->
 ## Precision Protocol
-1. **Search First:** Run \`source .venv/bin/activate && python3 search_code.py \"<query>\"\` to find relevant chunks.
+1. **Search First:** Run \`.venv/bin/python3 search_code.py \"<query>\"\` to find relevant chunks.
 2. **Verify:** Use the \`Read\` tool on the path from the search result.
 3. **Validate:** If it's the wrong spot, refine the search query and repeat.
 4. **Edit:** Only modify once the file content is verified.
@@ -100,7 +100,50 @@ else
     echo "Precision Protocol already in CLAUDE.md"
 fi
 
-# Step 8: Run first index (skip if index already exists)
+# Step 8: Install PostToolUse hook into .claude/settings.local.json
+SETTINGS_FILE=".claude/settings.local.json"
+mkdir -p ".claude"
+
+python3 - <<'PYEOF'
+import json, os, sys
+
+settings_file = os.environ.get("SETTINGS_FILE", ".claude/settings.local.json")
+
+hook_entry = {
+    "matcher": "Edit|Write",
+    "hooks": [
+        {
+            "type": "command",
+            "command": ".venv/bin/python3 index_project.py"
+        }
+    ]
+}
+
+if os.path.exists(settings_file):
+    with open(settings_file) as f:
+        try:
+            settings = json.load(f)
+        except json.JSONDecodeError:
+            print(f"Warning: {settings_file} is not valid JSON — overwriting")
+            settings = {}
+else:
+    settings = {}
+
+hooks = settings.setdefault("hooks", {})
+post_tool_use = hooks.setdefault("PostToolUse", [])
+existing_matchers = [h.get("matcher") for h in post_tool_use]
+
+if hook_entry["matcher"] in existing_matchers:
+    print(f"PostToolUse hook already in {settings_file}, skipping")
+else:
+    post_tool_use.append(hook_entry)
+    with open(settings_file, "w") as f:
+        json.dump(settings, f, indent=2)
+        f.write("\n")
+    print(f"Added PostToolUse hook to {settings_file}")
+PYEOF
+
+# Step 9: Run first index (skip if index already exists)
 if [ "$IS_GIT_REPO" = true ] && [ ! -d "chroma_db" ]; then
     echo "Building initial index..."
     "$VENV_PATH/bin/python3" index_project.py
@@ -111,5 +154,5 @@ fi
 echo ""
 echo "code-search installed successfully"
 echo "  Venv:     $VENV_PATH"
-echo "  Re-index: source .venv/bin/activate && python3 index_project.py"
-echo "  Search:   source .venv/bin/activate && python3 search_code.py \"<query>\""
+echo "  Re-index: .venv/bin/python3 index_project.py"
+echo "  Search:   .venv/bin/python3 search_code.py \"<query>\""
