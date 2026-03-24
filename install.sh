@@ -79,22 +79,21 @@ fi
 
 # Step 7: Update CLAUDE.md with Precision Protocol
 SENTINEL="<!-- code-search:start -->"
-CLAUDE_BLOCK="
-<!-- code-search:start -->
+CLAUDE_BLOCK="<!-- code-search:start -->
 ## Precision Protocol
-1. **Search First:** Run \`source ${VENV_PATH}/bin/activate && python3 search_code.py \"<query>\"\` to find relevant chunks.
+1. **Search First:** Run \`source .venv/bin/activate && python3 search_code.py \"<query>\"\` to find relevant chunks.
 2. **Verify:** Use the \`Read\` tool on the path from the search result.
 3. **Validate:** If it's the wrong spot, refine the search query and repeat.
 4. **Edit:** Only modify once the file content is verified.
 
-**Environment:** Always activate the virtual environment via \`source ${VENV_PATH}/bin/activate\` before running project scripts.
+**Environment:** Always activate the virtual environment via \`source .venv/bin/activate\` before running project scripts.
 <!-- code-search:end -->"
 
 if [ ! -f "CLAUDE.md" ]; then
     printf "%s\n" "$CLAUDE_BLOCK" > CLAUDE.md
     echo "Created CLAUDE.md with Precision Protocol"
 elif ! grep -qF "$SENTINEL" CLAUDE.md; then
-    printf "%s\n" "$CLAUDE_BLOCK" >> CLAUDE.md
+    printf "\n%s\n" "$CLAUDE_BLOCK" >> CLAUDE.md
     echo "Appended Precision Protocol to CLAUDE.md"
 else
     echo "Precision Protocol already in CLAUDE.md"
@@ -109,5 +108,5 @@ fi
 echo ""
 echo "code-search installed successfully"
 echo "  Venv:     $VENV_PATH"
-echo "  Re-index: source ${VENV_PATH}/bin/activate && python3 index_project.py"
-echo "  Search:   source ${VENV_PATH}/bin/activate && python3 search_code.py \"<query>\""
+echo "  Re-index: source .venv/bin/activate && python3 index_project.py"
+echo "  Search:   source .venv/bin/activate && python3 search_code.py \"<query>\""
