@@ -8,7 +8,6 @@ COLLECTION_NAME = "project_code"
 
 def merge_chunks(results):
     """Group results by file and merge overlapping line ranges."""
-    # Build list of (path, start, end, text) sorted by file then start
     items = []
     for i in range(len(results["ids"][0])):
         meta = results["metadatas"][0][i]
@@ -20,10 +19,12 @@ def merge_chunks(results):
     merged = []
     for path, start, end, text in items:
         if merged and merged[-1][0] == path and start <= merged[-1][2] + 1:
-            # overlapping or adjacent — merge
+            # overlapping or adjacent — merge, trimming duplicated overlap lines
             prev_path, prev_start, prev_end, prev_text = merged[-1]
-            new_end = max(prev_end, end)
-            merged[-1] = (prev_path, prev_start, new_end, prev_text + text)
+            overlap_line_count = max(0, prev_end - start + 1)
+            text_lines = text.splitlines(keepends=True)
+            new_text = prev_text + "".join(text_lines[overlap_line_count:])
+            merged[-1] = [prev_path, prev_start, max(prev_end, end), new_text]
         else:
             merged.append([path, start, end, text])
 
