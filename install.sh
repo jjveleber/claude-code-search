@@ -37,18 +37,21 @@ else
 fi
 echo "Using venv: $VENV_PATH"
 
-# Save mtime when reusing an existing venv — pip may create new subdirs (e.g. share/)
-# which would change .venv/'s mtime even though the venv itself was not recreated
+# Save a reference file for mtime restoration when reusing an existing venv.
+# pip may create new subdirs in .venv/ (e.g. share/) which would change its mtime
+# even though the venv was not recreated. touch -r is POSIX-portable (GNU + BSD).
 if [ "$VENV_EXISTED" = true ]; then
-    _VENV_SAVED_MTIME=$(stat -c %Y "$VENV_PATH" 2>/dev/null || stat -f %m "$VENV_PATH" 2>/dev/null || echo "")
+    _VENV_MTIME_REF=$(mktemp)
+    touch -r "$VENV_PATH" "$_VENV_MTIME_REF"
 fi
 
 # Step 4: Install chromadb
 "$VENV_PATH/bin/pip" install "chromadb>=1.0" --quiet
 
 # Restore venv directory mtime to signal reuse (not recreation)
-if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_SAVED_MTIME:-}" ]; then
-    touch -m -d "@${_VENV_SAVED_MTIME}" "$VENV_PATH" 2>/dev/null || true
+if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
+    touch -m -r "$_VENV_MTIME_REF" "$VENV_PATH" 2>/dev/null || true
+    rm -f "$_VENV_MTIME_REF"
 fi
 
 # Step 5: Download files (skip if already present)
