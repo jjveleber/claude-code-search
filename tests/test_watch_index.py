@@ -55,3 +55,37 @@ def test_cleanup_pid_removes_file(tmp_path):
 
 def test_cleanup_pid_missing_file_does_not_raise(tmp_path):
     cleanup_pid(str(tmp_path / "missing.pid"))  # must not raise
+
+
+# ── Path filtering ─────────────────────────────────────────────────────────────
+
+def test_should_ignore_chroma_db():
+    assert should_ignore("chroma_db/index/data.bin")
+
+
+def test_should_ignore_venv():
+    assert should_ignore(".venv/lib/python3.11/site-packages/foo.py")
+
+
+def test_should_ignore_git():
+    assert should_ignore(".git/COMMIT_EDITMSG")
+
+
+def test_should_ignore_pycache():
+    assert should_ignore("__pycache__/foo.cpython-311.pyc")
+
+
+def test_should_ignore_pid_file():
+    assert should_ignore(".watch_index.pid")
+
+
+def test_should_ignore_log_file():
+    assert should_ignore(".watch_index.log")
+
+
+def test_should_not_ignore_py_file():
+    assert not should_ignore("index_project.py")
+
+
+def test_should_not_ignore_nested_py_file():
+    assert not should_ignore("src/utils/helpers.py")

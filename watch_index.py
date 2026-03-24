@@ -51,7 +51,11 @@ def cleanup_pid(pid_file=PID_FILE):
 
 def should_ignore(path):
     """Return True if path is under an ignored directory or is an ignored filename."""
-    raise NotImplementedError
+    p = Path(path)
+    for part in p.parts:
+        if part in IGNORED_DIRS:
+            return True
+    return p.name in IGNORED_FILES
 
 
 class DebounceReindexer:
