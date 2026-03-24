@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_OWNER="${CODE_SEARCH_OWNER:-jjveleber}"
-BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/code-search/main"
+BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/claude-code-search/main"
 
 # Step 1: Check Python version
 PYTHON_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
