@@ -69,7 +69,14 @@ def search(query, n_results=5):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python3 search_code.py '<query>'")
-        sys.exit(1)
-    search(" ".join(sys.argv[1:]))
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Semantic code search against a ChromaDB index."
+    )
+    parser.add_argument("query", nargs="+", help="Search query (natural language)")
+    parser.add_argument(
+        "--top", type=int, default=5, metavar="N",
+        help="Number of results to return (default: 5)"
+    )
+    args = parser.parse_args()
+    search(" ".join(args.query), n_results=args.top)

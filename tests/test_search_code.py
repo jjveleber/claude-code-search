@@ -102,3 +102,18 @@ def test_no_results_exits_2(tmp_path):
     rc, stdout, stderr = run_search(["any query"], cwd=str(tmp_path))
     assert rc == 2
     assert "no results" in (stdout + stderr).lower()
+
+
+def test_top_flag_accepted(tmp_path):
+    """--top N flag is accepted without error (even on missing index, the arg is parsed first)."""
+    shutil.copy("search_code.py", tmp_path / "search_code.py")
+    rc, stdout, stderr = run_search(["--top", "10", "some query"], cwd=str(tmp_path))
+    # Exit 1 expected (no index), but NOT exit 2 (arg parse error)
+    assert rc != 2, f"argparse failed: {stderr}"
+
+
+def test_usage_message_on_no_args():
+    """Running with no args prints usage and exits non-zero."""
+    rc, stdout, stderr = run_search([])
+    assert rc != 0
+    assert "usage" in (stdout + stderr).lower()
