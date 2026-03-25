@@ -52,8 +52,8 @@ assert "CLAUDE.md does not start with blank line" "[ \"\$(head -c1 CLAUDE.md)\" 
 assert "watch_index.py installed"              "[ -f watch_index.py ]"
 assert ".watch_index.log in .gitignore"        "grep -qxF '.watch_index.log' .gitignore"
 assert ".watch_index.pid in .gitignore"        "grep -qxF '.watch_index.pid' .gitignore"
-assert "Session Startup in CLAUDE.md"          "grep -q 'Session Startup' CLAUDE.md"
-assert "watch_index.py command in CLAUDE.md"   "grep -q 'watch_index.py' CLAUDE.md"
+assert "auto-watcher hook in .claude/settings.json"  "[ -f .claude/settings.json ] && grep -q 'watch_index.py' .claude/settings.json"
+assert "Session Startup not in CLAUDE.md"      "! grep -q 'Session Startup' CLAUDE.md"
 teardown
 
 echo ""
@@ -163,15 +163,15 @@ assert "CLAUDE.md search command does not misuse 'source' as a path prefix" \
 teardown
 
 echo ""
-echo "=== Test 11: Re-install does not duplicate Session Startup in CLAUDE.md ==="
+echo "=== Test 11: Re-install does not duplicate hook in .claude/settings.json ==="
 setup
 git init -q
 git commit -q --allow-empty -m "init"
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
-COUNT1=$(grep -c "Session Startup" CLAUDE.md)
+COUNT1=$(grep -c "watch_index.py" .claude/settings.json)
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh" 2>&1
-COUNT2=$(grep -c "Session Startup" CLAUDE.md)
-assert "Session Startup not duplicated on re-install" "[ \"$COUNT1\" = \"$COUNT2\" ]"
+COUNT2=$(grep -c "watch_index.py" .claude/settings.json)
+assert "Hook not duplicated on re-install" "[ \"$COUNT1\" = \"$COUNT2\" ]"
 teardown
 
 echo ""

@@ -92,12 +92,17 @@ fi
 SENTINEL="<!-- code-search:start -->"
 CLAUDE_BLOCK="<!-- code-search:start -->
 ## Precision Protocol
-1. **Do you already know the file?**
+
+**Rule:** Before using \`Read\`, \`Grep\`, or \`Glob\` — if the exact file path was not given to you in the current task, run \`.venv/bin/python3 search_code.py \"<query>\"\` first.
+
+1. **File path given in task?**
    - **Yes** → go to step 2
    - **No** → run \`.venv/bin/python3 search_code.py \"<query>\"\`, then go to step 2
-2. **Verify:** Use \`Grep\` to find the exact location, then \`Read\` to confirm context.
-3. **Validate:** If it's the wrong spot, refine and repeat.
-4. **Edit:** Only modify once the file content is verified.
+2. **Grep** the exact location, then **Read** to confirm context.
+3. If wrong spot, refine and repeat from step 2.
+4. **Edit** only after verified.
+
+**Never use \`search_code.py\` when the file is already known — that is what \`Grep\` is for.**
 
 **Environment:** Always activate the virtual environment via \`source .venv/bin/activate\` before running project scripts.
 <!-- code-search:end -->"
@@ -120,21 +125,37 @@ PYEOF
     echo "Updated Precision Protocol in CLAUDE.md"
 fi
 
-# Step 7b: Add Session Startup section to CLAUDE.md
-WATCH_SENTINEL="<!-- code-search-watch:start -->"
-WATCH_BLOCK="<!-- code-search-watch:start -->
-## Session Startup
-At the start of each session:
-1. Run \`.venv/bin/python3 index_project.py\` to ensure the index is fresh
-2. Run \`.venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 &\` to start the watcher in the background
-<!-- code-search-watch:end -->"
+# Step 7b: Configure per-project Claude hook to auto-start watcher
+mkdir -p .claude
+python3 - <<'PYEOF'
+import json, pathlib
 
-if ! grep -qF "$WATCH_SENTINEL" CLAUDE.md; then
-    printf "\n%s\n" "$WATCH_BLOCK" >> CLAUDE.md
-    echo "Appended Session Startup to CLAUDE.md"
-else
-    echo "Session Startup already in CLAUDE.md"
-fi
+p = pathlib.Path(".claude/settings.json")
+settings = json.loads(p.read_text()) if p.exists() else {}
+
+hook_cmd = (
+    'if [ -f "watch_index.py" ] && [ -f ".venv/bin/python3" ]; then '
+    '  .venv/bin/python3 index_project.py >> .watch_index.log 2>&1 & '
+    '  .venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 & '
+    'fi'
+)
+
+hooks = settings.setdefault("hooks", {})
+prompt_hooks = hooks.setdefault("UserPromptSubmit", [])
+
+already_present = any(
+    h.get("command") == hook_cmd
+    for group in prompt_hooks
+    for h in group.get("hooks", [])
+)
+
+if not already_present:
+    prompt_hooks.append({"hooks": [{"type": "command", "command": hook_cmd}]})
+    p.write_text(json.dumps(settings, indent=2) + "\n")
+    print("Configured auto-watcher hook in .claude/settings.json")
+else:
+    print("Auto-watcher hook already configured")
+PYEOF
 
 # Step 8: Run first index (skip if index already exists)
 if [ "$IS_GIT_REPO" = true ] && [ ! -d "chroma_db" ]; then
