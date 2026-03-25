@@ -74,7 +74,6 @@ Then:
 - Remove the block between `<!-- code-search:start -->` and `<!-- code-search:end -->` from `CLAUDE.md`
 - Remove the block between `<!-- code-search-watch:start -->` and `<!-- code-search-watch:end -->` from `CLAUDE.md`
 - Remove the `chroma_db/`, `.watch_index.log`, and `.watch_index.pid` lines from `.gitignore`
-- Remove the `PostToolUse` hook entry from `.claude/settings.local.json` (the entry with `"command": ".venv/bin/python3 index_project.py"`)
 
 ## Environment Variables
 
