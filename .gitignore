@@ -6,3 +6,5 @@ __pycache__/
 .worktrees/
 .watch_index.log
 .watch_index.pid
+
+code-search-sandbox/
