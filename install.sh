@@ -125,6 +125,18 @@ PYEOF
     echo "Updated Precision Protocol in CLAUDE.md"
 fi
 
+# Step 7b: Remove legacy Session Startup section from CLAUDE.md (migrates old installs)
+if [ -f "CLAUDE.md" ] && grep -qF "<!-- code-search-watch:start -->" CLAUDE.md; then
+    python3 - <<'PYEOF'
+import re, pathlib
+p = pathlib.Path("CLAUDE.md")
+content = p.read_text()
+updated = re.sub(r"\n?<!-- code-search-watch:start -->.*?<!-- code-search-watch:end -->\n?", "", content, flags=re.DOTALL)
+p.write_text(updated)
+PYEOF
+    echo "Removed legacy Session Startup from CLAUDE.md"
+fi
+
 # Step 8: Configure per-project Claude hook to auto-start watcher
 mkdir -p .claude
 python3 - <<'PYEOF'
@@ -148,6 +160,32 @@ already_present = any(
     for group in prompt_hooks
     for h in group.get("hooks", [])
 )
+
+# Migrate: remove legacy PostToolUse hook from settings.local.json
+local_p = pathlib.Path(".claude/settings.local.json")
+if local_p.exists():
+    try:
+        local_settings = json.loads(local_p.read_text())
+        post_hooks = local_settings.get("hooks", {}).get("PostToolUse", [])
+        filtered = [
+            g for g in post_hooks
+            if not any("index_project.py" in h.get("command", "") for h in g.get("hooks", []))
+        ]
+        # Note: removes entire group if it contains index_project.py; assumes
+        # the installer-written group contained only that one command.
+        if len(filtered) < len(post_hooks):
+            local_settings["hooks"]["PostToolUse"] = filtered
+            if not local_settings["hooks"]["PostToolUse"]:
+                del local_settings["hooks"]["PostToolUse"]
+            if not local_settings.get("hooks"):
+                del local_settings["hooks"]
+            if not local_settings:
+                local_p.unlink()
+            else:
+                local_p.write_text(json.dumps(local_settings, indent=2) + "\n")
+            print("Removed legacy PostToolUse hook from .claude/settings.local.json")
+    except (json.JSONDecodeError, KeyError, AttributeError, TypeError):
+        pass
 
 if not already_present:
     prompt_hooks.append({"hooks": [{"type": "command", "command": hook_cmd}]})

@@ -179,6 +179,47 @@ assert "Hook not duplicated on re-install" "[ \"$COUNT1\" = \"$COUNT2\" ]"
 teardown
 
 echo ""
+echo "=== Test 11: Migrates legacy Session Startup section out of CLAUDE.md ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+# Simulate old install with Session Startup section
+printf "<!-- code-search:start -->\n## Precision Protocol\n<!-- code-search:end -->\n\n<!-- code-search-watch:start -->\n## Session Startup\nAt the start of each session:\n1. Run index_project.py\n<!-- code-search-watch:end -->\n" > CLAUDE.md
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
+assert "Session Startup removed from CLAUDE.md" "! grep -q 'Session Startup' CLAUDE.md"
+assert "Precision Protocol still present"        "grep -q 'code-search:start' CLAUDE.md"
+teardown
+
+echo ""
+echo "=== Test 12: Migrates legacy PostToolUse hook out of .claude/settings.local.json ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+# Simulate old install with PostToolUse hook
+mkdir -p .claude
+printf '{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":".venv/bin/python3 index_project.py"}]}]}}\n' > .claude/settings.local.json
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
+assert "settings.local.json deleted when empty after migration" "[ ! -f .claude/settings.local.json ]"
+assert "UserPromptSubmit hook added to settings.json"          "grep -q 'watch_index.py' .claude/settings.json"
+teardown
+
+echo ""
+echo "=== Test 13: Migration is idempotent — running install.sh twice on an old install ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+# Simulate old install
+printf "<!-- code-search:start -->\n## Precision Protocol\n<!-- code-search:end -->\n\n<!-- code-search-watch:start -->\n## Session Startup\n1. Run index_project.py\n<!-- code-search-watch:end -->\n" > CLAUDE.md
+mkdir -p .claude
+printf '{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":".venv/bin/python3 index_project.py"}]}]}}\n' > .claude/settings.local.json
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
+assert "Session Startup still absent after second run"    "! grep -q 'Session Startup' CLAUDE.md"
+assert "Precision Protocol still present after two runs"  "grep -q 'code-search:start' CLAUDE.md"
+assert "Hook not duplicated after two runs on old install" "[ \"$(grep -c 'watch_index.py' .claude/settings.json)\" = '1' ]"
+teardown
+
+echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "All $PASS tests passed."
 else
