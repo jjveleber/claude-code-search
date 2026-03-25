@@ -67,6 +67,10 @@ SENTINEL_COUNT=$(grep -c "code-search:start" CLAUDE.md)
 assert "Precision Protocol appears exactly once" "[ '$SENTINEL_COUNT' = '1' ]"
 GITIGNORE_COUNT=$(grep -c "chroma_db/" .gitignore)
 assert "chroma_db/ appears exactly once in .gitignore" "[ '$GITIGNORE_COUNT' = '1' ]"
+LOG_COUNT=$(grep -c ".watch_index.log" .gitignore)
+assert ".watch_index.log appears exactly once in .gitignore" "[ '$LOG_COUNT' = '1' ]"
+PID_COUNT=$(grep -c ".watch_index.pid" .gitignore)
+assert ".watch_index.pid appears exactly once in .gitignore" "[ '$PID_COUNT' = '1' ]"
 teardown
 
 echo ""
@@ -163,7 +167,7 @@ assert "CLAUDE.md search command does not misuse 'source' as a path prefix" \
 teardown
 
 echo ""
-echo "=== Test 11: Re-install does not duplicate hook in .claude/settings.json ==="
+echo "=== Test 10: Re-install does not duplicate hook in .claude/settings.json ==="
 setup
 git init -q
 git commit -q --allow-empty -m "init"

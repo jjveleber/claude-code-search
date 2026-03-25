@@ -14,4 +14,3 @@
 
 **Environment:** Always activate the virtual environment via `source .venv/bin/activate` before running project scripts.
 <!-- code-search:end -->
-

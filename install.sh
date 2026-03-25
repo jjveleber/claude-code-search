@@ -114,18 +114,18 @@ elif ! grep -qF "$SENTINEL" CLAUDE.md; then
     printf "\n%s\n" "$CLAUDE_BLOCK" >> CLAUDE.md
     echo "Appended Precision Protocol to CLAUDE.md"
 else
-    python3 - <<PYEOF
-import re, pathlib
+    CLAUDE_BLOCK="$CLAUDE_BLOCK" python3 - <<'PYEOF'
+import re, pathlib, os
 p = pathlib.Path("CLAUDE.md")
 content = p.read_text()
-new_block = """$CLAUDE_BLOCK"""
+new_block = os.environ["CLAUDE_BLOCK"]
 updated = re.sub(r"<!-- code-search:start -->.*?<!-- code-search:end -->", new_block, content, flags=re.DOTALL)
 p.write_text(updated)
 PYEOF
     echo "Updated Precision Protocol in CLAUDE.md"
 fi
 
-# Step 7b: Configure per-project Claude hook to auto-start watcher
+# Step 8: Configure per-project Claude hook to auto-start watcher
 mkdir -p .claude
 python3 - <<'PYEOF'
 import json, pathlib
@@ -157,7 +157,7 @@ else:
     print("Auto-watcher hook already configured")
 PYEOF
 
-# Step 8: Run first index (skip if index already exists)
+# Step 9: Run first index (skip if index already exists)
 if [ "$IS_GIT_REPO" = true ] && [ ! -d "chroma_db" ]; then
     echo "Building initial index..."
     "$VENV_PATH/bin/python3" index_project.py
