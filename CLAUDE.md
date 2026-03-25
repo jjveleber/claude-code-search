@@ -1,8 +1,10 @@
 <!-- code-search:start -->
 ## Precision Protocol
-1. **Search First:** Run `.venv/bin/python3 search_code.py "<query>"` to find relevant chunks.
-2. **Verify:** Use the `Read` tool on the path from the search result.
-3. **Validate:** If it's the wrong spot, refine the search query and repeat.
+1. **Do you already know the file?**
+   - **Yes** → go to step 2
+   - **No** → run `.venv/bin/python3 search_code.py "<query>"`, then go to step 2
+2. **Verify:** Use `Grep` to find the exact location, then `Read` to confirm context.
+3. **Validate:** If it's the wrong spot, refine and repeat.
 4. **Edit:** Only modify once the file content is verified.
 
 **Environment:** Always activate the virtual environment via `source .venv/bin/activate` before running project scripts.
