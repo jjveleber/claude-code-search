@@ -72,8 +72,8 @@ rm -rf index_project.py search_code.py watch_index.py chroma_db/ .venv/ .watch_i
 
 Then:
 - Remove the block between `<!-- code-search:start -->` and `<!-- code-search:end -->` from `CLAUDE.md`
-- Remove the block between `<!-- code-search-watch:start -->` and `<!-- code-search-watch:end -->` from `CLAUDE.md`
 - Remove the `chroma_db/`, `.watch_index.log`, and `.watch_index.pid` lines from `.gitignore`
+- Remove the `UserPromptSubmit` hook entry from `.claude/settings.json` (the entry with `watch_index.py`)
 
 ## Environment Variables
 
