@@ -22,7 +22,7 @@ fi
 # Step 3: Detect or create venv
 # Priority: project .venv > create new .venv
 # VIRTUAL_ENV is intentionally ignored — using a foreign venv would make
-# the .venv/bin/activate instructions in CLAUDE.md incorrect.
+# the .venv/bin/activate instructions in .claude/CLAUDE.md incorrect.
 VENV_EXISTED=false
 if [ -d ".venv" ]; then
     VENV_PATH="$(pwd)/.venv"
@@ -69,7 +69,7 @@ done
 
 # Step 6: Update .gitignore
 if [ ! -f ".gitignore" ]; then
-    printf "chroma_db/\n.watch_index.log\n.watch_index.pid\n" > .gitignore
+    printf "chroma_db/\n.watch_index.log\n.watch_index.pid\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
     echo "Created .gitignore"
 else
     if ! grep -qxF "chroma_db/" .gitignore; then
@@ -78,7 +78,7 @@ else
     else
         echo "chroma_db/ already in .gitignore"
     fi
-    for WATCH_IGNORE in ".watch_index.log" ".watch_index.pid"; do
+    for WATCH_IGNORE in ".watch_index.log" ".watch_index.pid" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
         if ! grep -qxF "$WATCH_IGNORE" .gitignore; then
             printf "\n%s\n" "$WATCH_IGNORE" >> .gitignore
             echo "Added $WATCH_IGNORE to .gitignore"
@@ -88,7 +88,8 @@ else
     done
 fi
 
-# Step 7: Update CLAUDE.md with Precision Protocol
+# Step 7: Write Precision Protocol to .claude/CLAUDE.md (local-only, not committed)
+mkdir -p .claude
 SENTINEL="<!-- code-search:start -->"
 CLAUDE_BLOCK="<!-- code-search:start -->
 ## Precision Protocol
@@ -107,43 +108,45 @@ CLAUDE_BLOCK="<!-- code-search:start -->
 **Environment:** Always activate the virtual environment via \`source .venv/bin/activate\` before running project scripts.
 <!-- code-search:end -->"
 
-if [ ! -f "CLAUDE.md" ]; then
-    printf "%s\n" "$CLAUDE_BLOCK" > CLAUDE.md
-    echo "Created CLAUDE.md with Precision Protocol"
-elif ! grep -qF "$SENTINEL" CLAUDE.md; then
-    printf "\n%s\n" "$CLAUDE_BLOCK" >> CLAUDE.md
-    echo "Appended Precision Protocol to CLAUDE.md"
+if [ ! -f ".claude/CLAUDE.md" ]; then
+    printf "%s\n" "$CLAUDE_BLOCK" > .claude/CLAUDE.md
+    echo "Created .claude/CLAUDE.md with Precision Protocol"
+elif ! grep -qF "$SENTINEL" .claude/CLAUDE.md; then
+    printf "\n%s\n" "$CLAUDE_BLOCK" >> .claude/CLAUDE.md
+    echo "Appended Precision Protocol to .claude/CLAUDE.md"
 else
     CLAUDE_BLOCK="$CLAUDE_BLOCK" python3 - <<'PYEOF'
 import re, pathlib, os
-p = pathlib.Path("CLAUDE.md")
+p = pathlib.Path(".claude/CLAUDE.md")
 content = p.read_text()
 new_block = os.environ["CLAUDE_BLOCK"]
 updated = re.sub(r"<!-- code-search:start -->.*?<!-- code-search:end -->", new_block, content, flags=re.DOTALL)
 p.write_text(updated)
 PYEOF
-    echo "Updated Precision Protocol in CLAUDE.md"
+    echo "Updated Precision Protocol in .claude/CLAUDE.md"
 fi
 
-# Step 7b: Remove legacy Session Startup section from CLAUDE.md (migrates old installs)
-if [ -f "CLAUDE.md" ] && grep -qF "<!-- code-search-watch:start -->" CLAUDE.md; then
+# Step 7b: Remove legacy blocks from CLAUDE.md (migrates old installs)
+if [ -f "CLAUDE.md" ]; then
     python3 - <<'PYEOF'
 import re, pathlib
 p = pathlib.Path("CLAUDE.md")
 content = p.read_text()
-updated = re.sub(r"\n?<!-- code-search-watch:start -->.*?<!-- code-search-watch:end -->\n?", "", content, flags=re.DOTALL)
-p.write_text(updated)
+original = content
+# Remove legacy Session Startup block
+content = re.sub(r"\n?<!-- code-search-watch:start -->.*?<!-- code-search-watch:end -->\n?", "", content, flags=re.DOTALL)
+# Migrate Precision Protocol block out of CLAUDE.md (now lives in .claude/CLAUDE.md)
+content = re.sub(r"\n?<!-- code-search:start -->.*?<!-- code-search:end -->\n?", "", content, flags=re.DOTALL)
+if content != original:
+    p.write_text(content)
+    print("Removed legacy code-search blocks from CLAUDE.md")
 PYEOF
-    echo "Removed legacy Session Startup from CLAUDE.md"
 fi
 
-# Step 8: Configure per-project Claude hook to auto-start watcher
-mkdir -p .claude
+# Step 8: Configure per-project Claude hook to auto-start watcher (local-only, not committed)
+# Uses settings.local.json so the hook only applies to the installing user.
 python3 - <<'PYEOF'
 import json, pathlib
-
-p = pathlib.Path(".claude/settings.json")
-settings = json.loads(p.read_text()) if p.exists() else {}
 
 hook_cmd = (
     'if [ -f "watch_index.py" ] && [ -f ".venv/bin/python3" ]; then '
@@ -152,7 +155,35 @@ hook_cmd = (
     'fi'
 )
 
-hooks = settings.setdefault("hooks", {})
+# Migrate: remove hook from settings.json if placed there by an older install
+shared_p = pathlib.Path(".claude/settings.json")
+if shared_p.exists():
+    try:
+        shared = json.loads(shared_p.read_text())
+        prompt_hooks = shared.get("hooks", {}).get("UserPromptSubmit", [])
+        filtered = [
+            g for g in prompt_hooks
+            if not any(h.get("command") == hook_cmd for h in g.get("hooks", []))
+        ]
+        if len(filtered) < len(prompt_hooks):
+            shared["hooks"]["UserPromptSubmit"] = filtered
+            if not shared["hooks"]["UserPromptSubmit"]:
+                del shared["hooks"]["UserPromptSubmit"]
+            if not shared.get("hooks"):
+                del shared["hooks"]
+            if not shared:
+                shared_p.unlink()
+            else:
+                shared_p.write_text(json.dumps(shared, indent=2) + "\n")
+            print("Migrated hook out of .claude/settings.json")
+    except (json.JSONDecodeError, KeyError, AttributeError, TypeError):
+        pass
+
+# Write hook to settings.local.json (gitignored, per-user)
+local_p = pathlib.Path(".claude/settings.local.json")
+local_settings = json.loads(local_p.read_text()) if local_p.exists() else {}
+
+hooks = local_settings.setdefault("hooks", {})
 prompt_hooks = hooks.setdefault("UserPromptSubmit", [])
 
 already_present = any(
@@ -162,37 +193,24 @@ already_present = any(
 )
 
 # Migrate: remove legacy PostToolUse hook from settings.local.json
-local_p = pathlib.Path(".claude/settings.local.json")
-if local_p.exists():
-    try:
-        local_settings = json.loads(local_p.read_text())
-        post_hooks = local_settings.get("hooks", {}).get("PostToolUse", [])
-        filtered = [
-            g for g in post_hooks
-            if not any("index_project.py" in h.get("command", "") for h in g.get("hooks", []))
-        ]
-        # Note: removes entire group if it contains index_project.py; assumes
-        # the installer-written group contained only that one command.
-        if len(filtered) < len(post_hooks):
-            local_settings["hooks"]["PostToolUse"] = filtered
-            if not local_settings["hooks"]["PostToolUse"]:
-                del local_settings["hooks"]["PostToolUse"]
-            if not local_settings.get("hooks"):
-                del local_settings["hooks"]
-            if not local_settings:
-                local_p.unlink()
-            else:
-                local_p.write_text(json.dumps(local_settings, indent=2) + "\n")
-            print("Removed legacy PostToolUse hook from .claude/settings.local.json")
-    except (json.JSONDecodeError, KeyError, AttributeError, TypeError):
-        pass
+post_hooks = local_settings.get("hooks", {}).get("PostToolUse", [])
+filtered_post = [
+    g for g in post_hooks
+    if not any("index_project.py" in h.get("command", "") for h in g.get("hooks", []))
+]
+if len(filtered_post) < len(post_hooks):
+    local_settings["hooks"]["PostToolUse"] = filtered_post
+    if not local_settings["hooks"]["PostToolUse"]:
+        del local_settings["hooks"]["PostToolUse"]
+    print("Removed legacy PostToolUse hook from .claude/settings.local.json")
 
 if not already_present:
     prompt_hooks.append({"hooks": [{"type": "command", "command": hook_cmd}]})
-    p.write_text(json.dumps(settings, indent=2) + "\n")
-    print("Configured auto-watcher hook in .claude/settings.json")
+    print("Configured auto-watcher hook in .claude/settings.local.json")
 else:
     print("Auto-watcher hook already configured")
+
+local_p.write_text(json.dumps(local_settings, indent=2) + "\n")
 PYEOF
 
 # Step 9: Run first index (skip if index already exists)

@@ -18,10 +18,12 @@ curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/i
 This will:
 - Detect or create a `.venv` in your project and install `chromadb` and `watchdog` into it
 - Copy `index_project.py`, `search_code.py`, and `watch_index.py` into your project root
-- Add `chroma_db/`, `.watch_index.log`, and `.watch_index.pid` to your `.gitignore`
-- Append the Precision Protocol block to your `CLAUDE.md` (creates it if missing)
-- Write a `UserPromptSubmit` hook to `.claude/settings.json` that auto-starts the watcher at the beginning of each Claude session
+- Add `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.claude/settings.local.json`, and `.claude/CLAUDE.md` to your `.gitignore`
+- Write the Precision Protocol block to `.claude/CLAUDE.md` (local-only, not committed)
+- Write a `UserPromptSubmit` hook to `.claude/settings.local.json` (local-only, not committed) that auto-starts the watcher at the beginning of each Claude session
 - Build the initial search index
+
+Only the three Python scripts and the `.gitignore` additions are committed. The Precision Protocol and hook are local to each developer who runs the installer — teammates who pull the repo are not affected until they run it themselves.
 
 The first index run is proportional to repo size and may take a minute or more on large repos.
 
@@ -45,15 +47,15 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 
 ## What Gets Installed
 
-| Item | Location |
-|---|---|
-| `index_project.py` | project root |
-| `search_code.py` | project root |
-| `watch_index.py` | project root |
-| `chroma_db/` | project root (created on first index) |
-| Precision Protocol block | appended to `CLAUDE.md` |
-| `chroma_db/`, `.watch_index.log`, `.watch_index.pid` entries | appended to `.gitignore` |
-| Auto-watcher `UserPromptSubmit` hook | `.claude/settings.json` |
+| Item | Location | Committed? |
+|---|---|---|
+| `index_project.py` | project root | yes |
+| `search_code.py` | project root | yes |
+| `watch_index.py` | project root | yes |
+| `chroma_db/` | project root (created on first index) | no (gitignored) |
+| Precision Protocol block | `.claude/CLAUDE.md` | no (gitignored) |
+| `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.claude/settings.local.json`, `.claude/CLAUDE.md` entries | `.gitignore` | yes |
+| Auto-watcher `UserPromptSubmit` hook | `.claude/settings.local.json` | no (gitignored) |
 
 ## Upgrade
 
@@ -74,9 +76,9 @@ rm -rf index_project.py search_code.py watch_index.py chroma_db/ .venv/ .watch_i
 > **Note:** Omit `.venv/` if it predated this installation (i.e. you brought your own virtual environment).
 
 Then:
-- Remove the block between `<!-- code-search:start -->` and `<!-- code-search:end -->` from `CLAUDE.md`
-- Remove the `chroma_db/`, `.watch_index.log`, and `.watch_index.pid` lines from `.gitignore`
-- Remove the `UserPromptSubmit` hook entry from `.claude/settings.json` (the entry with `watch_index.py`)
+- Remove `.claude/CLAUDE.md`
+- Remove the `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.claude/settings.local.json`, and `.claude/CLAUDE.md` lines from `.gitignore`
+- Remove `.claude/settings.local.json` (or just the `UserPromptSubmit` hook entry with `watch_index.py` if you have other settings there)
 
 ## Environment Variables
 
