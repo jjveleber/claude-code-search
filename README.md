@@ -16,20 +16,21 @@ curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/i
 ```
 
 This will:
-- Detect or create a `.venv` in your project and install `chromadb` into it
-- Copy `index_project.py` and `search_code.py` into your project root
-- Add `chroma_db/` to your `.gitignore`
+- Detect or create a `.venv` in your project and install `chromadb` and `watchdog` into it
+- Copy `index_project.py`, `search_code.py`, and `watch_index.py` into your project root
+- Add `chroma_db/`, `.watch_index.log`, and `.watch_index.pid` to your `.gitignore`
 - Append the Precision Protocol block to your `CLAUDE.md` (creates it if missing)
+- Write a `UserPromptSubmit` hook to `.claude/settings.json` that auto-starts the watcher at the beginning of each Claude session
 - Build the initial search index
 
 The first index run is proportional to repo size and may take a minute or more on large repos.
 
 ## Re-index
 
-After significant code changes:
+The watcher (`watch_index.py`) runs in the background during Claude sessions and re-indexes automatically whenever files change. To re-index manually:
 
 ```bash
-source .venv/bin/activate && python3 index_project.py
+.venv/bin/python3 index_project.py
 ```
 
 The indexer is incremental — only changed chunks are re-embedded, so re-runs are fast.
@@ -37,7 +38,7 @@ The indexer is incremental — only changed chunks are re-embedded, so re-runs a
 ## Search
 
 ```bash
-source .venv/bin/activate && python3 search_code.py "database connection"
+.venv/bin/python3 search_code.py "database connection"
 ```
 
 Returns the top 5 most relevant code chunks with file paths and line numbers.
@@ -48,9 +49,11 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 |---|---|
 | `index_project.py` | project root |
 | `search_code.py` | project root |
+| `watch_index.py` | project root |
 | `chroma_db/` | project root (created on first index) |
 | Precision Protocol block | appended to `CLAUDE.md` |
-| `chroma_db/` entry | appended to `.gitignore` |
+| `chroma_db/`, `.watch_index.log`, `.watch_index.pid` entries | appended to `.gitignore` |
+| Auto-watcher `UserPromptSubmit` hook | `.claude/settings.json` |
 
 ## Upgrade
 
