@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 *.pyo
 .worktrees/
+.watch_index.log
+.watch_index.pid
+
+code-search-sandbox/

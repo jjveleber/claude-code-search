@@ -57,22 +57,23 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 Re-running the installer does not overwrite existing files (local edits are preserved). To upgrade:
 
 ```bash
-rm index_project.py search_code.py
+rm index_project.py search_code.py watch_index.py
 curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/install.sh | bash
 ```
 
 ## Uninstall
 
 ```bash
-rm -rf index_project.py search_code.py chroma_db/ .venv/
+pkill -f watch_index.py || true
+rm -rf index_project.py search_code.py watch_index.py chroma_db/ .venv/ .watch_index.pid .watch_index.log
 ```
 
 > **Note:** Omit `.venv/` if it predated this installation (i.e. you brought your own virtual environment).
 
 Then:
 - Remove the block between `<!-- code-search:start -->` and `<!-- code-search:end -->` from `CLAUDE.md`
-- Remove the `chroma_db/` line from `.gitignore`
-- Remove the `PostToolUse` hook entry from `.claude/settings.local.json` (the entry with `"command": ".venv/bin/python3 index_project.py"`)
+- Remove the block between `<!-- code-search-watch:start -->` and `<!-- code-search-watch:end -->` from `CLAUDE.md`
+- Remove the `chroma_db/`, `.watch_index.log`, and `.watch_index.pid` lines from `.gitignore`
 
 ## Environment Variables
 
