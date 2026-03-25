@@ -125,7 +125,7 @@ PYEOF
     echo "Updated Precision Protocol in CLAUDE.md"
 fi
 
-# Step 7c: Remove legacy Session Startup section from CLAUDE.md (migrates old installs)
+# Step 7b: Remove legacy Session Startup section from CLAUDE.md (migrates old installs)
 if [ -f "CLAUDE.md" ] && grep -qF "<!-- code-search-watch:start -->" CLAUDE.md; then
     python3 - <<'PYEOF'
 import re, pathlib
@@ -171,15 +171,20 @@ if local_p.exists():
             g for g in post_hooks
             if not any("index_project.py" in h.get("command", "") for h in g.get("hooks", []))
         ]
+        # Note: removes entire group if it contains index_project.py; assumes
+        # the installer-written group contained only that one command.
         if len(filtered) < len(post_hooks):
             local_settings["hooks"]["PostToolUse"] = filtered
             if not local_settings["hooks"]["PostToolUse"]:
                 del local_settings["hooks"]["PostToolUse"]
-            if not local_settings["hooks"]:
+            if not local_settings.get("hooks"):
                 del local_settings["hooks"]
-            local_p.write_text(json.dumps(local_settings, indent=2) + "\n")
+            if not local_settings:
+                local_p.unlink()
+            else:
+                local_p.write_text(json.dumps(local_settings, indent=2) + "\n")
             print("Removed legacy PostToolUse hook from .claude/settings.local.json")
-    except (json.JSONDecodeError, KeyError):
+    except (json.JSONDecodeError, KeyError, AttributeError, TypeError):
         pass
 
 if not already_present:

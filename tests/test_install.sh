@@ -199,8 +199,24 @@ git commit -q --allow-empty -m "init"
 mkdir -p .claude
 printf '{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":".venv/bin/python3 index_project.py"}]}]}}\n' > .claude/settings.local.json
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
-assert "PostToolUse hook removed from settings.local.json" "! grep -q 'PostToolUse' .claude/settings.local.json"
-assert "UserPromptSubmit hook added to settings.json"      "grep -q 'watch_index.py' .claude/settings.json"
+assert "settings.local.json deleted when empty after migration" "[ ! -f .claude/settings.local.json ]"
+assert "UserPromptSubmit hook added to settings.json"          "grep -q 'watch_index.py' .claude/settings.json"
+teardown
+
+echo ""
+echo "=== Test 13: Migration is idempotent — running install.sh twice on an old install ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+# Simulate old install
+printf "<!-- code-search:start -->\n## Precision Protocol\n<!-- code-search:end -->\n\n<!-- code-search-watch:start -->\n## Session Startup\n1. Run index_project.py\n<!-- code-search-watch:end -->\n" > CLAUDE.md
+mkdir -p .claude
+printf '{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":".venv/bin/python3 index_project.py"}]}]}}\n' > .claude/settings.local.json
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
+assert "Session Startup still absent after second run"    "! grep -q 'Session Startup' CLAUDE.md"
+assert "Precision Protocol still present after two runs"  "grep -q 'code-search:start' CLAUDE.md"
+assert "Hook not duplicated after two runs on old install" "[ \"$(grep -c 'watch_index.py' .claude/settings.json)\" = '1' ]"
 teardown
 
 echo ""
