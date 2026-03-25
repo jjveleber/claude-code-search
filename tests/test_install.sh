@@ -49,6 +49,11 @@ assert "venv created"                 "[ -d .venv ]"
 assert "chroma_db index built"        "[ -d chroma_db ]"
 assert "CLAUDE.md search command uses .venv/bin/python3 (not 'source')"  "grep -q '.venv/bin/python3 search_code.py' CLAUDE.md"
 assert "CLAUDE.md does not start with blank line" "[ \"\$(head -c1 CLAUDE.md)\" != $'\n' ]"
+assert "watch_index.py installed"              "[ -f watch_index.py ]"
+assert ".watch_index.log in .gitignore"        "grep -qxF '.watch_index.log' .gitignore"
+assert ".watch_index.pid in .gitignore"        "grep -qxF '.watch_index.pid' .gitignore"
+assert "auto-watcher hook in .claude/settings.json"  "[ -f .claude/settings.json ] && grep -q 'watch_index.py' .claude/settings.json"
+assert "Session Startup not in CLAUDE.md"      "! grep -q 'Session Startup' CLAUDE.md"
 teardown
 
 echo ""
@@ -62,6 +67,10 @@ SENTINEL_COUNT=$(grep -c "code-search:start" CLAUDE.md)
 assert "Precision Protocol appears exactly once" "[ '$SENTINEL_COUNT' = '1' ]"
 GITIGNORE_COUNT=$(grep -c "chroma_db/" .gitignore)
 assert "chroma_db/ appears exactly once in .gitignore" "[ '$GITIGNORE_COUNT' = '1' ]"
+LOG_COUNT=$(grep -c ".watch_index.log" .gitignore)
+assert ".watch_index.log appears exactly once in .gitignore" "[ '$LOG_COUNT' = '1' ]"
+PID_COUNT=$(grep -c ".watch_index.pid" .gitignore)
+assert ".watch_index.pid appears exactly once in .gitignore" "[ '$PID_COUNT' = '1' ]"
 teardown
 
 echo ""
@@ -146,22 +155,7 @@ assert "second run reports index already exists" "echo '$SECOND_OUTPUT' | grep -
 teardown
 
 echo ""
-echo "=== Test 9: PostToolUse hook is correctly structured and /bin/sh-safe ==="
-setup
-git init -q
-git commit -q --allow-empty -m "init"
-CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
-assert "settings.local.json created"              "[ -f .claude/settings.local.json ]"
-assert "hook nested under 'hooks' key (not root)" \
-    "python3 -c \"import json,sys; d=json.load(open('.claude/settings.local.json')); sys.exit(0 if 'hooks' in d and 'PostToolUse' in d.get('hooks',{}) else 1)\""
-assert "hook command uses .venv/bin/python3" \
-    "python3 -c \"import json,sys; d=json.load(open('.claude/settings.local.json')); cmd=d['hooks']['PostToolUse'][0]['hooks'][0]['command']; sys.exit(0 if '.venv/bin/python3' in cmd else 1)\""
-assert "hook command is /bin/sh-safe (no 'source')" \
-    "python3 -c \"import json,sys; d=json.load(open('.claude/settings.local.json')); cmd=d['hooks']['PostToolUse'][0]['hooks'][0]['command']; sys.exit(0 if 'source' not in cmd else 1)\""
-teardown
-
-echo ""
-echo "=== Test 10: CLAUDE.md Precision Protocol uses correct search command ==="
+echo "=== Test 9: CLAUDE.md Precision Protocol uses correct search command ==="
 setup
 git init -q
 git commit -q --allow-empty -m "init"
@@ -170,6 +164,18 @@ assert "CLAUDE.md search command uses .venv/bin/python3" \
     "grep -q '.venv/bin/python3 search_code.py' CLAUDE.md"
 assert "CLAUDE.md search command does not misuse 'source' as a path prefix" \
     "! grep -q 'source .venv/bin/python3' CLAUDE.md"
+teardown
+
+echo ""
+echo "=== Test 10: Re-install does not duplicate hook in .claude/settings.json ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
+COUNT1=$(grep -c "watch_index.py" .claude/settings.json)
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh" 2>&1
+COUNT2=$(grep -c "watch_index.py" .claude/settings.json)
+assert "Hook not duplicated on re-install" "[ \"$COUNT1\" = \"$COUNT2\" ]"
 teardown
 
 echo ""

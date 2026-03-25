@@ -44,7 +44,7 @@ if [ "$VENV_EXISTED" = true ]; then
 fi
 
 # Step 4: Install chromadb
-"$VENV_PATH/bin/pip" install "chromadb>=1.0"
+"$VENV_PATH/bin/pip" install "chromadb>=1.0" "watchdog>=3.0"
 
 # Restore venv directory mtime to signal reuse (not recreation)
 if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
@@ -54,7 +54,7 @@ fi
 
 # Step 5: Download files (skip if already present)
 # CODE_SEARCH_LOCAL: if set, copy from that directory instead of curling (used for testing)
-for FILE in index_project.py search_code.py; do
+for FILE in index_project.py search_code.py watch_index.py; do
     if [ ! -f "$FILE" ]; then
         if [ -n "${CODE_SEARCH_LOCAL:-}" ]; then
             cp "${CODE_SEARCH_LOCAL}/$FILE" "./$FILE"
@@ -69,23 +69,40 @@ done
 
 # Step 6: Update .gitignore
 if [ ! -f ".gitignore" ]; then
-    printf "chroma_db/\n" > .gitignore
+    printf "chroma_db/\n.watch_index.log\n.watch_index.pid\n" > .gitignore
     echo "Created .gitignore"
-elif ! grep -qxF "chroma_db/" .gitignore; then
-    printf "\nchroma_db/\n" >> .gitignore
-    echo "Added chroma_db/ to .gitignore"
 else
-    echo "chroma_db/ already in .gitignore"
+    if ! grep -qxF "chroma_db/" .gitignore; then
+        printf "\nchroma_db/\n" >> .gitignore
+        echo "Added chroma_db/ to .gitignore"
+    else
+        echo "chroma_db/ already in .gitignore"
+    fi
+    for WATCH_IGNORE in ".watch_index.log" ".watch_index.pid"; do
+        if ! grep -qxF "$WATCH_IGNORE" .gitignore; then
+            printf "\n%s\n" "$WATCH_IGNORE" >> .gitignore
+            echo "Added $WATCH_IGNORE to .gitignore"
+        else
+            echo "$WATCH_IGNORE already in .gitignore"
+        fi
+    done
 fi
 
 # Step 7: Update CLAUDE.md with Precision Protocol
 SENTINEL="<!-- code-search:start -->"
 CLAUDE_BLOCK="<!-- code-search:start -->
 ## Precision Protocol
-1. **Search First:** Run \`.venv/bin/python3 search_code.py \"<query>\"\` to find relevant chunks.
-2. **Verify:** Use the \`Read\` tool on the path from the search result.
-3. **Validate:** If it's the wrong spot, refine the search query and repeat.
-4. **Edit:** Only modify once the file content is verified.
+
+**Rule:** Before using \`Read\`, \`Grep\`, or \`Glob\` — if the exact file path was not given to you in the current task, run \`.venv/bin/python3 search_code.py \"<query>\"\` first.
+
+1. **File path given in task?**
+   - **Yes** → go to step 2
+   - **No** → run \`.venv/bin/python3 search_code.py \"<query>\"\`, then go to step 2
+2. **Grep** the exact location, then **Read** to confirm context.
+3. If wrong spot, refine and repeat from step 2.
+4. **Edit** only after verified.
+
+**Never use \`search_code.py\` when the file is already known — that is what \`Grep\` is for.**
 
 **Environment:** Always activate the virtual environment via \`source .venv/bin/activate\` before running project scripts.
 <!-- code-search:end -->"
@@ -97,50 +114,47 @@ elif ! grep -qF "$SENTINEL" CLAUDE.md; then
     printf "\n%s\n" "$CLAUDE_BLOCK" >> CLAUDE.md
     echo "Appended Precision Protocol to CLAUDE.md"
 else
-    echo "Precision Protocol already in CLAUDE.md"
+    CLAUDE_BLOCK="$CLAUDE_BLOCK" python3 - <<'PYEOF'
+import re, pathlib, os
+p = pathlib.Path("CLAUDE.md")
+content = p.read_text()
+new_block = os.environ["CLAUDE_BLOCK"]
+updated = re.sub(r"<!-- code-search:start -->.*?<!-- code-search:end -->", new_block, content, flags=re.DOTALL)
+p.write_text(updated)
+PYEOF
+    echo "Updated Precision Protocol in CLAUDE.md"
 fi
 
-# Step 8: Install PostToolUse hook into .claude/settings.local.json
-SETTINGS_FILE=".claude/settings.local.json"
-mkdir -p ".claude"
-
+# Step 8: Configure per-project Claude hook to auto-start watcher
+mkdir -p .claude
 python3 - <<'PYEOF'
-import json, os, sys
+import json, pathlib
 
-settings_file = os.environ.get("SETTINGS_FILE", ".claude/settings.local.json")
+p = pathlib.Path(".claude/settings.json")
+settings = json.loads(p.read_text()) if p.exists() else {}
 
-hook_entry = {
-    "matcher": "Edit|Write",
-    "hooks": [
-        {
-            "type": "command",
-            "command": ".venv/bin/python3 index_project.py"
-        }
-    ]
-}
-
-if os.path.exists(settings_file):
-    with open(settings_file) as f:
-        try:
-            settings = json.load(f)
-        except json.JSONDecodeError:
-            print(f"Warning: {settings_file} is not valid JSON — overwriting")
-            settings = {}
-else:
-    settings = {}
+hook_cmd = (
+    'if [ -f "watch_index.py" ] && [ -f ".venv/bin/python3" ]; then '
+    '  .venv/bin/python3 index_project.py >> .watch_index.log 2>&1 & '
+    '  .venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 & '
+    'fi'
+)
 
 hooks = settings.setdefault("hooks", {})
-post_tool_use = hooks.setdefault("PostToolUse", [])
-existing_matchers = [h.get("matcher") for h in post_tool_use]
+prompt_hooks = hooks.setdefault("UserPromptSubmit", [])
 
-if hook_entry["matcher"] in existing_matchers:
-    print(f"PostToolUse hook already in {settings_file}, skipping")
+already_present = any(
+    h.get("command") == hook_cmd
+    for group in prompt_hooks
+    for h in group.get("hooks", [])
+)
+
+if not already_present:
+    prompt_hooks.append({"hooks": [{"type": "command", "command": hook_cmd}]})
+    p.write_text(json.dumps(settings, indent=2) + "\n")
+    print("Configured auto-watcher hook in .claude/settings.json")
 else:
-    post_tool_use.append(hook_entry)
-    with open(settings_file, "w") as f:
-        json.dump(settings, f, indent=2)
-        f.write("\n")
-    print(f"Added PostToolUse hook to {settings_file}")
+    print("Auto-watcher hook already configured")
 PYEOF
 
 # Step 9: Run first index (skip if index already exists)
@@ -155,4 +169,5 @@ echo ""
 echo "code-search installed successfully"
 echo "  Venv:     $VENV_PATH"
 echo "  Re-index: .venv/bin/python3 index_project.py"
+echo "  Watch:    .venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 &"
 echo "  Search:   .venv/bin/python3 search_code.py \"<query>\""
