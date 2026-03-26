@@ -120,15 +120,16 @@ def index_files():
             })
             ids_to_upsert.append(chunk_id)
 
-    if ids_to_upsert:
+    CHROMA_MAX_BATCH = 5000
+    for i in range(0, len(ids_to_upsert), CHROMA_MAX_BATCH):
         collection.upsert(
-            documents=docs_to_upsert,
-            metadatas=metas_to_upsert,
-            ids=ids_to_upsert,
+            documents=docs_to_upsert[i:i + CHROMA_MAX_BATCH],
+            metadatas=metas_to_upsert[i:i + CHROMA_MAX_BATCH],
+            ids=ids_to_upsert[i:i + CHROMA_MAX_BATCH],
         )
 
-    if to_delete:
-        collection.delete(ids=to_delete)
+    for i in range(0, len(to_delete), CHROMA_MAX_BATCH):
+        collection.delete(ids=to_delete[i:i + CHROMA_MAX_BATCH])
 
     print(
         f"Files scanned: {files_scanned} | "
