@@ -10,6 +10,21 @@ COLLECTION_NAME = "project_code"
 CHUNK_TARGET = 60
 CHUNK_OVERLAP = 10
 CHUNK_MAX = 120
+CHROMA_MAX_BATCH = 5000
+
+
+def _batch_upsert(collection, docs, metas, ids):
+    for i in range(0, len(ids), CHROMA_MAX_BATCH):
+        collection.upsert(
+            documents=docs[i:i + CHROMA_MAX_BATCH],
+            metadatas=metas[i:i + CHROMA_MAX_BATCH],
+            ids=ids[i:i + CHROMA_MAX_BATCH],
+        )
+
+
+def _batch_delete(collection, ids):
+    for i in range(0, len(ids), CHROMA_MAX_BATCH):
+        collection.delete(ids=ids[i:i + CHROMA_MAX_BATCH])
 
 
 def git_indexable_files():
@@ -120,15 +135,8 @@ def index_files():
             })
             ids_to_upsert.append(chunk_id)
 
-    if ids_to_upsert:
-        collection.upsert(
-            documents=docs_to_upsert,
-            metadatas=metas_to_upsert,
-            ids=ids_to_upsert,
-        )
-
-    if to_delete:
-        collection.delete(ids=to_delete)
+    _batch_upsert(collection, docs_to_upsert, metas_to_upsert, ids_to_upsert)
+    _batch_delete(collection, to_delete)
 
     print(
         f"Files scanned: {files_scanned} | "
