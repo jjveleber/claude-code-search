@@ -22,12 +22,6 @@ A set of shell scripts that automate setup, state management, guided execution, 
 - Supporting repos other than llvm-project without modification
 - Linux support — scripts use `pbcopy` and target macOS only
 
-## Prerequisites / Known Fixes Required
-
-Before the scripts can be implemented, one bug in `eval.py` must be fixed:
-
-**`eval.py compare` early-returns when modes differ.** `cmd_compare` currently prints a warning and exits when `mode_a != mode_b`. But baseline-vs-run is exactly the comparison we need for `report.sh`. The early return must be removed for the `{"baseline", "run"}` case so the `_compute_edit_hit_rate` path at line 221 is reachable. This fix is part of the implementation work for this spec.
-
 ## Scripts
 
 ```
