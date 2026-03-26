@@ -37,9 +37,18 @@ echo "Using venv: $VENV_PATH"
 # Save a reference file for mtime restoration when reusing an existing venv.
 # pip may create new subdirs in .venv/ (e.g. share/) which would change its mtime
 # even though the venv was not recreated. touch -r is POSIX-portable (GNU + BSD).
+_VENV_MTIME_REF=""
+_CS_TMPFILES=()
+_CS_CLEANUP() {
+    [ -n "${_VENV_MTIME_REF:-}" ] && rm -f "$_VENV_MTIME_REF"
+    for _f in "${_CS_TMPFILES[@]+"${_CS_TMPFILES[@]}"}"; do
+        rm -f "$_f"
+    done
+}
+trap '_CS_CLEANUP' EXIT
+
 if [ "$VENV_EXISTED" = true ]; then
     _VENV_MTIME_REF=$(mktemp)
-    trap '[ -n "${_VENV_MTIME_REF:-}" ] && rm -f "$_VENV_MTIME_REF"' EXIT
     touch -r "$VENV_PATH" "$_VENV_MTIME_REF"
 fi
 
@@ -53,18 +62,35 @@ if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
 fi
 
 # Step 5: Download files (always overwrite — install acts as update)
+# Downloads to temp files first; moves into place only after all succeed,
+# so a partial failure (e.g. network error) leaves existing files untouched.
 # CODE_SEARCH_LOCAL: if set, copy from that directory instead of curling (used for testing)
-for FILE in index_project.py search_code.py watch_index.py; do
-    FILE_EXISTED=false
-    [ -f "$FILE" ] && FILE_EXISTED=true
+_CS_FILES=(index_project.py search_code.py watch_index.py)
+_CS_FILE_EXISTED=()
 
-    if [ -n "${CODE_SEARCH_LOCAL:-}" ]; then
-        cp "${CODE_SEARCH_LOCAL}/$FILE" "./$FILE"
+# Phase 1: record pre-existence and download to temp files
+for FILE in "${_CS_FILES[@]}"; do
+    if [ -f "$FILE" ]; then
+        _CS_FILE_EXISTED+=(true)
     else
-        curl -fsSL "$BASE_URL/$FILE" -o "$FILE"
+        _CS_FILE_EXISTED+=(false)
     fi
 
-    if [ "$FILE_EXISTED" = true ]; then
+    TMPFILE=$(mktemp ".${FILE}.XXXXXX")
+    _CS_TMPFILES+=("$TMPFILE")
+
+    if [ -n "${CODE_SEARCH_LOCAL:-}" ]; then
+        cp "${CODE_SEARCH_LOCAL}/$FILE" "$TMPFILE"
+    else
+        curl -fsSL "$BASE_URL/$FILE" -o "$TMPFILE"
+    fi
+done
+
+# Phase 2: all downloads succeeded — move into place and report
+for i in "${!_CS_FILES[@]}"; do
+    FILE="${_CS_FILES[$i]}"
+    mv "${_CS_TMPFILES[$i]}" "$FILE"
+    if [ "${_CS_FILE_EXISTED[$i]}" = true ]; then
         echo "Updated $FILE"
     else
         echo "Installed $FILE"
