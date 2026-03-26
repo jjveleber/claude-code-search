@@ -1,7 +1,7 @@
 import io
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, mock_open
 
 import pytest
 
@@ -189,3 +189,81 @@ def test_loading_phase_prints_status_before_collection_get():
 
     assert call_order[0] == "status:Loading index..."
     assert call_order[1] == "get"
+
+
+def test_scanning_phase_updates_per_file():
+    """_status must be called once per file with correct counts."""
+    import index_project as _ip
+
+    mock_collection = MagicMock()
+    mock_collection.get.return_value = {"ids": [], "metadatas": []}
+
+    status_calls = []
+    with patch("index_project._status", side_effect=lambda m: status_calls.append(m)), \
+         patch("index_project.chromadb.PersistentClient") as mock_client, \
+         patch("index_project.embedding_functions.DefaultEmbeddingFunction"), \
+         patch("index_project.git_indexable_files", return_value=["a.py", "b.py", "c.py"]), \
+         patch("builtins.open", mock_open(read_data="line1\n")):
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+        _ip.index_files()
+
+    scanning_calls = [m for m in status_calls if m.startswith("Scanning")]
+    assert scanning_calls == [
+        "Scanning files... 1 / 3",
+        "Scanning files... 2 / 3",
+        "Scanning files... 3 / 3",
+    ]
+
+
+def test_batch_upsert_progress_messages():
+    """_status must show batch and chunk counts for each batch."""
+    import index_project as _ip
+    mock_collection = MagicMock()
+    status_calls = []
+
+    # 2 items, batch size 1 → 2 batches
+    with patch("index_project._status", side_effect=lambda m: status_calls.append(m)), \
+         patch("index_project.CHROMA_MAX_BATCH", 1):
+        _ip._batch_upsert(mock_collection, ["d1", "d2"], [{"a": 1}, {"a": 2}], ["id1", "id2"])
+
+    assert status_calls == [
+        "Upserting... batch 1 / 2 (1 / 2 chunks)",
+        "Upserting... batch 2 / 2 (2 / 2 chunks)",
+    ]
+    assert mock_collection.upsert.call_count == 2
+
+
+def test_batch_upsert_empty_prints_nothing_to_upsert():
+    import index_project as _ip
+    printed = []
+    with patch("builtins.print", side_effect=lambda *a, **kw: printed.append(a)):
+        _ip._batch_upsert(MagicMock(), [], [], [])
+    assert any("Nothing to upsert" in str(p) for p in printed)
+
+
+def test_batch_delete_progress_messages():
+    """_status must show batch and chunk counts for each batch."""
+    import index_project as _ip
+    mock_collection = MagicMock()
+    status_calls = []
+
+    with patch("index_project._status", side_effect=lambda m: status_calls.append(m)), \
+         patch("index_project.CHROMA_MAX_BATCH", 1):
+        _ip._batch_delete(mock_collection, ["id1", "id2"])
+
+    assert status_calls == [
+        "Deleting... batch 1 / 2 (1 / 2 chunks)",
+        "Deleting... batch 2 / 2 (2 / 2 chunks)",
+    ]
+    assert mock_collection.delete.call_count == 2
+
+
+def test_batch_delete_empty_is_silent():
+    import index_project as _ip
+    printed = []
+    status_calls = []
+    with patch("builtins.print", side_effect=lambda *a, **kw: printed.append(a)), \
+         patch("index_project._status", side_effect=lambda m: status_calls.append(m)):
+        _ip._batch_delete(MagicMock(), [])
+    assert printed == []
+    assert status_calls == []
