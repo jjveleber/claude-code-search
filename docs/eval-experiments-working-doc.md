@@ -3,7 +3,57 @@
 **Branch:** `feature/eval-framework`
 **Worktree:** `.worktrees/eval-framework`
 **Date:** 2026-03-26
-**Status:** In progress — prompts drafted, not yet added to benchmark JSON
+**Status:** Plan complete — ready to execute
+
+---
+
+## Next Session Pickup
+
+**Everything is ready to implement. Pick up here:**
+
+1. Open Claude Code in the worktree:
+   ```bash
+   cd /path/to/claude-code-search/.worktrees/eval-framework
+   ```
+
+2. Tell Claude:
+   > "Execute the implementation plan at `docs/superpowers/plans/2026-03-26-eval-experiment-runner.md`"
+
+   Claude will invoke the `superpowers:executing-plans` or `superpowers:subagent-driven-development` skill and work through all 7 tasks.
+
+**What will be built:**
+- `eval/benchmarks/llvm.json` — updated with 18 prompts
+- `eval/scripts/setup.sh` — one-time install + index
+- `eval/scripts/validate.sh` — state checker
+- `eval/scripts/reset.sh` — state transitions (baseline ↔ run)
+- `eval/scripts/run-experiment.sh` — guided runner with clipboard copy (macOS)
+- `eval/scripts/report.sh` — compare reports + create GitHub issue
+
+**After implementation, the experiment workflow is:**
+```bash
+# One-time setup (if not done)
+bash eval/scripts/setup.sh
+
+# Run baseline (Claude without search)
+bash eval/scripts/reset.sh baseline
+bash eval/scripts/run-experiment.sh baseline   # walks 18 prompts, clipboard each
+
+# Run treatment (Claude with search)
+bash eval/scripts/reset.sh run
+bash eval/scripts/run-experiment.sh run        # same 18 prompts
+
+# Post results to GitHub
+bash eval/scripts/report.sh \
+  eval/results/<baseline>.json \
+  eval/results/<run>.json
+```
+
+**Key files:**
+- Plan: `docs/superpowers/plans/2026-03-26-eval-experiment-runner.md`
+- Spec: `docs/superpowers/specs/2026-03-26-eval-experiment-runner-design.md`
+- Benchmark prompts: below in this doc (also will be in `eval/benchmarks/llvm.json` after task 1)
+
+---
 
 ---
 
@@ -16,10 +66,10 @@ Establish a baseline (without claude-code-search) and a treatment run (with clau
 
 ---
 
-## Open Questions (decide before implementing)
+## Open Questions
 
-- [ ] Use all 18 prompts (2 per type) or trim to 9 (1 per type)?
-- [ ] Replace the existing 3 prompts in `llvm.json` or fold them in?
+- [x] Use all 18 prompts (2 per type) — **decided: all 18**
+- [x] Replace the existing 3 prompts in `llvm.json` or fold them in? — **decided: replaced**
 
 ---
 
