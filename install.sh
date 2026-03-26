@@ -52,18 +52,22 @@ if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
     rm -f "$_VENV_MTIME_REF"
 fi
 
-# Step 5: Download files (skip if already present)
+# Step 5: Download files (always overwrite — install acts as update)
 # CODE_SEARCH_LOCAL: if set, copy from that directory instead of curling (used for testing)
 for FILE in index_project.py search_code.py watch_index.py; do
-    if [ ! -f "$FILE" ]; then
-        if [ -n "${CODE_SEARCH_LOCAL:-}" ]; then
-            cp "${CODE_SEARCH_LOCAL}/$FILE" "./$FILE"
-        else
-            curl -fsSL "$BASE_URL/$FILE" -o "$FILE"
-        fi
-        echo "Installed $FILE"
+    FILE_EXISTED=false
+    [ -f "$FILE" ] && FILE_EXISTED=true
+
+    if [ -n "${CODE_SEARCH_LOCAL:-}" ]; then
+        cp "${CODE_SEARCH_LOCAL}/$FILE" "./$FILE"
     else
-        echo "$FILE already exists, skipping"
+        curl -fsSL "$BASE_URL/$FILE" -o "$FILE"
+    fi
+
+    if [ "$FILE_EXISTED" = true ]; then
+        echo "Updated $FILE"
+    else
+        echo "Installed $FILE"
     fi
 done
 

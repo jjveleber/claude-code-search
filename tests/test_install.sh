@@ -163,7 +163,7 @@ INDEX_MTIME=$(stat -c %Y chroma_db 2>/dev/null || stat -f %m chroma_db)
 SECOND_OUTPUT=$(CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh" 2>&1)
 INDEX_MTIME2=$(stat -c %Y chroma_db 2>/dev/null || stat -f %m chroma_db)
 assert "chroma_db not rebuilt on re-install (mtime unchanged)" "[ '$INDEX_MTIME' = '$INDEX_MTIME2' ]"
-assert "second run reports index already exists" "echo '$SECOND_OUTPUT' | grep -q 'already exists'"
+assert "second run updates python files" "echo '$SECOND_OUTPUT' | grep -q 'Updated index_project.py'"
 teardown
 
 echo ""
