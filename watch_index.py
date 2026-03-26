@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """watch_index.py — re-index ChromaDB whenever project files change."""
 
+import fcntl
 import os
 import signal
 import subprocess
@@ -41,12 +42,47 @@ def write_pid(pid_file=PID_FILE):
         f.write(str(os.getpid()))
 
 
+def acquire_pid_lock(pid_file=PID_FILE):
+    """Atomically acquire exclusive PID lock.
+
+    Returns an open file handle on success (caller must keep it open to hold
+    the lock), or None if another process already holds it.  Using flock
+    eliminates the TOCTOU race in the old is_already_running/write_pid pair.
+    """
+    try:
+        fh = open(pid_file, "a")          # create if absent; never truncates
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fh.seek(0)
+        fh.truncate()
+        fh.write(str(os.getpid()))
+        fh.flush()
+        return fh
+    except OSError:
+        try:
+            fh.close()
+        except Exception:
+            pass
+        return None
+
+
 def cleanup_pid(pid_file=PID_FILE):
     """Remove pid_file, silently ignore if missing."""
     try:
         os.remove(pid_file)
     except FileNotFoundError:
         pass
+
+
+def is_git_ignored(path):
+    """Return True if path is git-ignored (i.e. git check-ignore exits 0)."""
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", path],
+            capture_output=True,
+        )
+        return result.returncode == 0
+    except OSError:
+        return False
 
 
 def should_ignore(path):
@@ -101,8 +137,13 @@ class ReindexHandler(FileSystemEventHandler):
     def on_any_event(self, event):
         if event.is_directory:
             return
+        if event.event_type in ("opened", "closed_no_write"):
+            return
         if should_ignore(event.src_path):
             return
+        if is_git_ignored(event.src_path):
+            return
+        _log(f"triggered by: {event.src_path} ({event.event_type})")
         self._reindexer.trigger()
 
 
@@ -112,7 +153,8 @@ def _log(msg):
 
 
 def main():
-    if is_already_running():
+    lock_fh = acquire_pid_lock()
+    if lock_fh is None:
         try:
             with open(PID_FILE) as f:
                 pid = f.read().strip()
@@ -121,9 +163,8 @@ def main():
         print(f"watcher already running (PID: {pid})")
         sys.exit(0)
 
-    write_pid()
-
     def _cleanup(signum=None, frame=None):
+        lock_fh.close()
         cleanup_pid()
         sys.exit(0)
 
