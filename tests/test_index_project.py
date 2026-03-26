@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 from unittest.mock import MagicMock, patch
@@ -153,3 +154,19 @@ def test_untracked_query_uses_exclude_standard():
     untracked_calls = [c for c in calls if "--others" in c]
     assert untracked_calls, "expected a call with --others"
     assert "--exclude-standard" in untracked_calls[0]
+
+
+def test_status_writes_ansi_erase_and_message():
+    buf = io.StringIO()
+    with patch("sys.stdout", buf):
+        import index_project as _ip
+        _ip._status("hello world")
+    assert buf.getvalue() == "\r\033[Khello world"
+
+
+def test_status_does_not_write_newline():
+    buf = io.StringIO()
+    with patch("sys.stdout", buf):
+        import index_project as _ip
+        _ip._status("x")
+    assert "\n" not in buf.getvalue()

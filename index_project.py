@@ -81,6 +81,10 @@ def sha256(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _status(msg):
+    print(f"\r\033[K{msg}", end="", flush=True)
+
+
 def index_files():
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     emb_fn = embedding_functions.DefaultEmbeddingFunction()
