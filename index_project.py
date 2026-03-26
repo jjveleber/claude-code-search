@@ -21,7 +21,7 @@ def git_indexable_files():
         ["git", "ls-files", "--others", "--exclude-standard"],
         capture_output=True, text=True, check=True,
     ).stdout.splitlines()
-    chroma_dir = os.path.normpath(CHROMA_PATH)
+    chroma_dir = os.path.normpath(CHROMA_PATH).replace("\\", "/")
     seen = set()
     result = []
     for f in tracked + untracked:

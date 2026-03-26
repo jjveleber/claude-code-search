@@ -81,6 +81,23 @@ def test_chroma_db_exclusion_tracks_chroma_path():
         _ip.CHROMA_PATH = original
 
 
+def test_chroma_db_exclusion_uses_forward_slashes():
+    """Exclusion must work even when os.path.normpath returns backslash-separated paths (Windows)."""
+    import index_project as _ip
+    original = _ip.CHROMA_PATH
+    try:
+        _ip.CHROMA_PATH = "./data/chroma_db"
+        with patch("index_project.os.path.normpath", return_value="data\\chroma_db"), \
+             patch("index_project.subprocess.run", side_effect=_fake_run(
+                 ["main.py", "data/chroma_db/chroma.sqlite3"], []
+             )):
+            files = _ip.git_indexable_files()
+        assert not any(f.startswith("data/chroma_db") for f in files)
+        assert "main.py" in files
+    finally:
+        _ip.CHROMA_PATH = original
+
+
 def test_untracked_query_uses_exclude_standard():
     """--exclude-standard ensures gitignored files are not returned as untracked."""
     calls = []
