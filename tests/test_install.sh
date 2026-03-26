@@ -154,7 +154,7 @@ rm -rf "$FAKE_VENV"
 teardown
 
 echo ""
-echo "=== Test 8: Re-install does not rebuild existing index ==="
+echo "=== Test 8: Re-install updates python files but does not rebuild existing index ==="
 setup
 git init -q
 git commit -q --allow-empty -m "init"
