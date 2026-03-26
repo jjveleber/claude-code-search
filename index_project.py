@@ -11,11 +11,22 @@ CHUNK_OVERLAP = 10
 CHUNK_MAX = 120
 
 
-def git_tracked_files():
-    result = subprocess.run(
+def git_indexable_files():
+    """Return tracked files plus untracked non-ignored files."""
+    tracked = subprocess.run(
         ["git", "ls-files"], capture_output=True, text=True, check=True
-    )
-    return [f for f in result.stdout.splitlines() if f.strip()]
+    ).stdout.splitlines()
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard"],
+        capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    seen = set()
+    result = []
+    for f in tracked + untracked:
+        if f.strip() and f not in seen:
+            seen.add(f)
+            result.append(f)
+    return result
 
 
 def chunk_lines(lines):
@@ -66,7 +77,7 @@ def index_files():
     for chunk_id, meta in zip(existing["ids"], existing["metadatas"]):
         existing_hashes[chunk_id] = meta.get("hash", "")
 
-    tracked_files = git_tracked_files()
+    tracked_files = git_indexable_files()
     tracked_set = set(tracked_files)
 
     # Find chunk IDs that belong to files no longer tracked

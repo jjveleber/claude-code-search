@@ -159,6 +159,7 @@ def test_index_reflects_edits(tmp_path):
     _subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(tmp_path), check=True)
     _subprocess.run(["git", "config", "user.name", "T"], cwd=str(tmp_path), check=True)
 
+    (tmp_path / ".gitignore").write_text("chroma_db/\n")
     source_file = tmp_path / "hello.py"
     source_file.write_text("def greet():\n    return 'hello'\n")
     _subprocess.run(["git", "add", "."], cwd=str(tmp_path), check=True)
