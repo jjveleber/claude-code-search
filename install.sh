@@ -76,7 +76,7 @@ for FILE in "${_CS_FILES[@]}"; do
         _CS_FILE_EXISTED+=(false)
     fi
 
-    TMPFILE=$(mktemp ".${FILE}.XXXXXX")
+    TMPFILE=$(mktemp "${FILE}.XXXXXX")
     _CS_TMPFILES+=("$TMPFILE")
 
     if [ -n "${CODE_SEARCH_LOCAL:-}" ]; then
