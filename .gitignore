@@ -8,3 +8,9 @@ __pycache__/
 .watch_index.pid
 
 code-search-sandbox/
+
+eval/results/*.json
+eval/results/*.log
+.eval_current_task
+.eval_task_index
+.eval_session_log
