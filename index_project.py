@@ -93,7 +93,9 @@ def index_files():
     )
 
     # Load existing chunks from ChromaDB
+    _status("Loading index...")
     existing = collection.get(include=["metadatas"])
+    print()  # end loading line
     existing_hashes = {}
     for chunk_id, meta in zip(existing["ids"], existing["metadatas"]):
         existing_hashes[chunk_id] = meta.get("hash", "")

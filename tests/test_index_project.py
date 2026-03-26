@@ -170,3 +170,22 @@ def test_status_does_not_write_newline():
         import index_project as _ip
         _ip._status("x")
     assert "\n" not in buf.getvalue()
+
+
+def test_loading_phase_prints_status_before_collection_get():
+    """_status('Loading index...') must be called before collection.get()."""
+    import index_project as _ip
+    call_order = []
+
+    mock_collection = MagicMock()
+    mock_collection.get.side_effect = lambda **kw: (call_order.append("get"), {"ids": [], "metadatas": []})[1]
+
+    with patch("index_project._status", side_effect=lambda m: call_order.append(f"status:{m}")), \
+         patch("index_project.chromadb.PersistentClient") as mock_client, \
+         patch("index_project.embedding_functions.DefaultEmbeddingFunction"), \
+         patch("index_project.git_indexable_files", return_value=[]):
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+        _ip.index_files()
+
+    assert call_order[0] == "status:Loading index..."
+    assert call_order[1] == "get"
