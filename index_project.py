@@ -1,4 +1,5 @@
 import hashlib
+import os
 import subprocess
 import sys
 import chromadb
@@ -20,10 +21,11 @@ def git_indexable_files():
         ["git", "ls-files", "--others", "--exclude-standard"],
         capture_output=True, text=True, check=True,
     ).stdout.splitlines()
+    chroma_dir = os.path.normpath(CHROMA_PATH)
     seen = set()
     result = []
     for f in tracked + untracked:
-        if f.strip() and f not in seen:
+        if f.strip() and f not in seen and not f.startswith(chroma_dir + "/") and f != chroma_dir:
             seen.add(f)
             result.append(f)
     return result
