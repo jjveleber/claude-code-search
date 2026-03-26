@@ -5,7 +5,7 @@
 
 ## Overview
 
-Add in-place terminal progress output to `index_project.py` across all three phases of indexing: loading, scanning, and upserting. No new dependencies.
+Add in-place terminal progress output to `index_project.py` across all four phases of indexing: loading, scanning, upserting, and deleting. No new dependencies.
 
 ## Problem
 
@@ -29,13 +29,15 @@ def _status(msg):
 
 Each phase ends with a plain `print()` to emit a newline and leave the final state visible on screen.
 
+ANSI output is always emitted regardless of TTY; non-TTY handling is out of scope.
+
 ### Phase 1: Loading
 
 ```
 Loading index...
 ```
 
-Printed before `collection.get()`. No per-item progress is available from the ChromaDB API, so this is a single static message that remains until the call returns, then ends with a newline.
+Printed before `collection.get()`. No per-item progress is available from the ChromaDB API, so this is a single static message. The terminating `print()` is placed immediately after `collection.get()` returns — before `git_indexable_files()` is called — so Phase 1 represents only the ChromaDB fetch.
 
 ### Phase 2: Scanning
 
@@ -43,7 +45,7 @@ Printed before `collection.get()`. No per-item progress is available from the Ch
 Scanning files... 142 / 4,231
 ```
 
-Updated on every file in the `for filepath in tracked_files` loop. Uses the length of `tracked_files` (known upfront) as the total.
+Updated on every file in the `for filepath in tracked_files` loop. Uses `len(tracked_files)` (known upfront) as the total. Numbers are formatted with thousands separators using `f"{n:,}"`.
 
 ### Phase 3: Upserting
 
@@ -51,15 +53,17 @@ Updated on every file in the `for filepath in tracked_files` loop. Uses the leng
 Upserting... batch 2 / 9 (10,000 / 45,033 chunks)
 ```
 
-Updated at the start of each batch in `_batch_upsert`. The helper receives the current batch index, total batches, current chunk count, and total chunk count so the message is fully informative.
+Updated at the start of each batch in `_batch_upsert`. The `_batch_upsert` and `_batch_delete` signatures do not change — all progress data (current offset, total items, batch size) is already available inside both functions from existing parameters (`ids`, `CHROMA_MAX_BATCH`). Numbers formatted with `f"{n:,}"`.
 
-If there are no chunks to upsert, prints `Nothing to upsert.` (with newline, no `\r` needed).
+If there are no chunks to upsert, prints `Nothing to upsert.` (plain `print()`, no `\r` needed).
 
-Same pattern applied to `_batch_delete` if there are deletions, showing:
+### Phase 4: Deleting
 
 ```
 Deleting... batch 1 / 2 (5,000 / 7,203 chunks)
 ```
+
+Same pattern as Phase 3, applied to `_batch_delete`. If there are no chunks to delete, the function returns silently (no output).
 
 ### Summary Line
 
@@ -72,10 +76,13 @@ Files scanned: 4,231 | Chunks upserted: 45,033 | Chunks deleted: 7,203
 ## Changes
 
 - `index_project.py`: add `_status()` helper; add progress calls in `index_files()`, `_batch_upsert()`, and `_batch_delete()`
-- `tests/test_index_project.py`: patch `sys.stdout` or capture output to verify `_status` is called at appropriate points; ensure `\033[K` is present in output
+- `tests/test_index_project.py`:
+  - Test `_status()` directly (unit test, no mocking needed) to verify `\r\033[K` prefix and `flush=True`
+  - Test progress call sites by mocking `chromadb.PersistentClient`, `DefaultEmbeddingFunction`, and `subprocess.run` — same pattern as existing tests — then assert `_status` is called with expected messages. Do not use integration-style tests that touch real ChromaDB.
 
 ## Non-Goals
 
 - No external dependencies (no `tqdm`, no `rich`)
 - No ETA or throughput calculation
 - No color or spinner
+- No TTY detection
