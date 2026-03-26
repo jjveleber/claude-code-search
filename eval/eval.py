@@ -101,6 +101,62 @@ def _print_task_list(benchmark_file, interactive=False):
         f.write(str(idx + 1))
 
 
+def cmd_analyze(args):
+    import glob
+    from eval.session import analyze_session
+    from eval.report import write_report
+
+    results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+    logs = sorted(glob.glob(os.path.join(results_dir, "session-*.log")))
+    if not logs:
+        print("No session log found in eval/results/. Run a session with capture hooks active first.")
+        sys.exit(1)
+    log_path = logs[-1]
+    print(f"Analyzing: {log_path}")
+
+    report = analyze_session(log_path, mode=args.mode)
+    path = write_report(report, results_dir=results_dir)
+
+    s = report["summary"]
+    print(f"\nReport saved to {path}")
+    print(f"  discarded_reads_total:        {s.get('discarded_reads_total', 0)}")
+    print(f"  avg_tool_calls_per_task:      {s.get('avg_tool_calls_per_task', 0):.1f}")
+    print(f"  grep_fallback_rate:           {s.get('grep_fallback_rate', 0):.0%}")
+    print(f"  avg_estimated_tokens/task:    {s.get('avg_estimated_tokens_per_task', 0):.0f}")
+
+
+def cmd_promote(args):
+    import json
+    from eval.report import read_report
+
+    report = read_report(args.report)
+    if report.get("mode") != "baseline":
+        print("Error: promote requires a baseline report.")
+        sys.exit(1)
+
+    benchmark_file = args.benchmark or DEFAULT_BENCHMARK
+    with open(benchmark_file) as f:
+        benchmark = json.load(f)
+
+    task_map = {t["id"]: t for t in report.get("tasks", [])}
+    updated = 0
+    for entry in benchmark:
+        tid = entry["id"]
+        if tid not in task_map:
+            continue
+        new_files = task_map[tid].get("edited_files", [])
+        existing = set(entry.get("expected_files", []))
+        merged = sorted(existing | set(new_files))
+        if merged != entry.get("expected_files", []):
+            entry["expected_files"] = merged
+            updated += 1
+
+    with open(benchmark_file, "w") as f:
+        json.dump(benchmark, f, indent=2)
+
+    print(f"Promoted {updated} entries to {benchmark_file}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="claude-code-search eval framework")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -125,6 +181,17 @@ def main():
     p_next = sub.add_parser("next-task", help="Print next task prompt and register task ID")
     p_next.add_argument("--benchmark", help="Path to benchmark JSON")
     p_next.set_defaults(func=cmd_next_task)
+
+    # analyze
+    p_analyze = sub.add_parser("analyze", help="Parse session log, write integration report")
+    p_analyze.add_argument("mode", choices=["baseline", "run"])
+    p_analyze.set_defaults(func=cmd_analyze)
+
+    # promote
+    p_promote = sub.add_parser("promote", help="Populate expected_files from baseline report")
+    p_promote.add_argument("report", help="Path to baseline report JSON")
+    p_promote.add_argument("--benchmark", help="Path to benchmark JSON")
+    p_promote.set_defaults(func=cmd_promote)
 
     args = parser.parse_args()
     args.func(args)
