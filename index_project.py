@@ -13,18 +13,37 @@ CHUNK_MAX = 120
 CHROMA_MAX_BATCH = 5000
 
 
+def _status(msg):
+    print(f"\r\033[K{msg}", end="", flush=True)
+
+
 def _batch_upsert(collection, docs, metas, ids):
-    for i in range(0, len(ids), CHROMA_MAX_BATCH):
+    if not ids:
+        print("Nothing to upsert.")
+        return
+    total = len(ids)
+    total_batches = (total + CHROMA_MAX_BATCH - 1) // CHROMA_MAX_BATCH
+    for b, i in enumerate(range(0, total, CHROMA_MAX_BATCH), start=1):
+        done = min(i + CHROMA_MAX_BATCH, total)
+        _status(f"Upserting... batch {b} / {total_batches} ({done:,} / {total:,} chunks)")
         collection.upsert(
             documents=docs[i:i + CHROMA_MAX_BATCH],
             metadatas=metas[i:i + CHROMA_MAX_BATCH],
             ids=ids[i:i + CHROMA_MAX_BATCH],
         )
+    print()  # end upsert line
 
 
 def _batch_delete(collection, ids):
-    for i in range(0, len(ids), CHROMA_MAX_BATCH):
+    if not ids:
+        return
+    total = len(ids)
+    total_batches = (total + CHROMA_MAX_BATCH - 1) // CHROMA_MAX_BATCH
+    for b, i in enumerate(range(0, total, CHROMA_MAX_BATCH), start=1):
+        done = min(i + CHROMA_MAX_BATCH, total)
+        _status(f"Deleting... batch {b} / {total_batches} ({done:,} / {total:,} chunks)")
         collection.delete(ids=ids[i:i + CHROMA_MAX_BATCH])
+    print()  # end delete line
 
 
 def git_indexable_files():
@@ -89,7 +108,9 @@ def index_files():
     )
 
     # Load existing chunks from ChromaDB
+    _status("Loading index...")
     existing = collection.get(include=["metadatas"])
+    print()  # end loading line
     existing_hashes = {}
     for chunk_id, meta in zip(existing["ids"], existing["metadatas"]):
         existing_hashes[chunk_id] = meta.get("hash", "")
@@ -108,8 +129,10 @@ def index_files():
     ids_to_upsert = []
     files_scanned = 0
 
+    total_files = len(tracked_files)
     for filepath in tracked_files:
         files_scanned += 1
+        _status(f"Scanning files... {files_scanned:,} / {total_files:,}")
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 lines = f.readlines()
@@ -135,6 +158,7 @@ def index_files():
             })
             ids_to_upsert.append(chunk_id)
 
+    print()  # end scanning line
     _batch_upsert(collection, docs_to_upsert, metas_to_upsert, ids_to_upsert)
     _batch_delete(collection, to_delete)
 

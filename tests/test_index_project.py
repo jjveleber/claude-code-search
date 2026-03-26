@@ -1,11 +1,13 @@
+import io
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, mock_open
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import index_project as _ip_module
 from index_project import git_indexable_files, CHROMA_MAX_BATCH
 
 
@@ -153,3 +155,134 @@ def test_untracked_query_uses_exclude_standard():
     untracked_calls = [c for c in calls if "--others" in c]
     assert untracked_calls, "expected a call with --others"
     assert "--exclude-standard" in untracked_calls[0]
+
+
+def test_status_writes_ansi_erase_and_message():
+    buf = io.StringIO()
+    with patch("sys.stdout", buf):
+        _ip_module._status("hello world")
+    assert buf.getvalue() == "\r\033[Khello world"
+
+
+def test_status_does_not_write_newline():
+    buf = io.StringIO()
+    with patch("sys.stdout", buf):
+        _ip_module._status("x")
+    assert "\n" not in buf.getvalue()
+
+
+def test_status_uses_flush():
+    mock_stdout = MagicMock()
+    with patch("sys.stdout", mock_stdout):
+        _ip_module._status("msg")
+    mock_stdout.write.assert_called()
+    # print(..., flush=True) calls flush() on stdout
+    mock_stdout.flush.assert_called()
+
+
+def test_loading_phase_prints_status_before_collection_get():
+    """_status('Loading index...') must be called before collection.get()."""
+    call_order = []
+
+    mock_collection = MagicMock()
+    mock_collection.get.side_effect = lambda **kw: (call_order.append("get"), {"ids": [], "metadatas": []})[1]
+
+    with patch("index_project._status", side_effect=lambda m: call_order.append(f"status:{m}")), \
+         patch("index_project.chromadb.PersistentClient") as mock_client, \
+         patch("index_project.embedding_functions.DefaultEmbeddingFunction"), \
+         patch("index_project.git_indexable_files", return_value=[]):
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+        _ip_module.index_files()
+
+    assert call_order[0] == "status:Loading index..."
+    assert call_order[1] == "get"
+
+
+def test_scanning_phase_updates_per_file():
+    """_status must be called once per file with correct counts."""
+    mock_collection = MagicMock()
+    mock_collection.get.return_value = {"ids": [], "metadatas": []}
+
+    status_calls = []
+    with patch("index_project._status", side_effect=lambda m: status_calls.append(m)), \
+         patch("index_project.chromadb.PersistentClient") as mock_client, \
+         patch("index_project.embedding_functions.DefaultEmbeddingFunction"), \
+         patch("index_project.git_indexable_files", return_value=["a.py", "b.py", "c.py"]), \
+         patch("builtins.open", mock_open(read_data="line1\n")):
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+        _ip_module.index_files()
+
+    scanning_calls = [m for m in status_calls if m.startswith("Scanning")]
+    assert scanning_calls == [
+        "Scanning files... 1 / 3",
+        "Scanning files... 2 / 3",
+        "Scanning files... 3 / 3",
+    ]
+
+
+def test_batch_upsert_progress_messages():
+    """_status must show batch and chunk counts for each batch."""
+    mock_collection = MagicMock()
+    status_calls = []
+
+    # 2 items, batch size 1 → 2 batches
+    with patch("index_project._status", side_effect=lambda m: status_calls.append(m)), \
+         patch("index_project.CHROMA_MAX_BATCH", 1):
+        _ip_module._batch_upsert(mock_collection, ["d1", "d2"], [{"a": 1}, {"a": 2}], ["id1", "id2"])
+
+    assert status_calls == [
+        "Upserting... batch 1 / 2 (1 / 2 chunks)",
+        "Upserting... batch 2 / 2 (2 / 2 chunks)",
+    ]
+    assert mock_collection.upsert.call_count == 2
+
+
+def test_batch_upsert_empty_prints_nothing_to_upsert():
+    printed = []
+    with patch("builtins.print", side_effect=lambda *a, **kw: printed.append(a)):
+        _ip_module._batch_upsert(MagicMock(), [], [], [])
+    assert any("Nothing to upsert" in str(p) for p in printed)
+
+
+def test_batch_delete_progress_messages():
+    """_status must show batch and chunk counts for each batch."""
+    mock_collection = MagicMock()
+    status_calls = []
+
+    with patch("index_project._status", side_effect=lambda m: status_calls.append(m)), \
+         patch("index_project.CHROMA_MAX_BATCH", 1):
+        _ip_module._batch_delete(mock_collection, ["id1", "id2"])
+
+    assert status_calls == [
+        "Deleting... batch 1 / 2 (1 / 2 chunks)",
+        "Deleting... batch 2 / 2 (2 / 2 chunks)",
+    ]
+    assert mock_collection.delete.call_count == 2
+
+
+def test_batch_delete_empty_is_silent():
+    printed = []
+    status_calls = []
+    with patch("builtins.print", side_effect=lambda *a, **kw: printed.append(a)), \
+         patch("index_project._status", side_effect=lambda m: status_calls.append(m)):
+        _ip_module._batch_delete(MagicMock(), [])
+    assert printed == []
+    assert status_calls == []
+
+
+def test_batch_upsert_prints_newline_terminator_after_batches():
+    """A bare print() must be called after the last batch to end the progress line."""
+    bare_prints = []
+    with patch("index_project._status"), \
+         patch("builtins.print", side_effect=lambda *a, **kw: bare_prints.append(a) if not a else None):
+        _ip_module._batch_upsert(MagicMock(), ["d"], [{"a": 1}], ["id1"])
+    assert () in bare_prints
+
+
+def test_batch_delete_prints_newline_terminator_after_batches():
+    """A bare print() must be called after the last batch to end the progress line."""
+    bare_prints = []
+    with patch("index_project._status"), \
+         patch("builtins.print", side_effect=lambda *a, **kw: bare_prints.append(a) if not a else None):
+        _ip_module._batch_delete(MagicMock(), ["id1"])
+    assert () in bare_prints
