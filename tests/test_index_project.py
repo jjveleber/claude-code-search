@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from index_project import git_indexable_files
+from index_project import git_indexable_files, CHROMA_MAX_BATCH
 
 
 def _fake_run(tracked, untracked):
@@ -96,6 +96,46 @@ def test_chroma_db_exclusion_uses_forward_slashes():
         assert "main.py" in files
     finally:
         _ip.CHROMA_PATH = original
+
+
+def test_upsert_is_batched_when_exceeding_max_batch_size():
+    """collection.upsert must be called in multiple batches when chunks exceed CHROMA_MAX_BATCH."""
+    import index_project as _ip
+
+    num_items = CHROMA_MAX_BATCH + 1
+    ids = [f"file.py::{i}" for i in range(num_items)]
+    docs = [f"chunk {i}" for i in range(num_items)]
+    metas = [{"path": "file.py", "start_line": i, "end_line": i + 1, "hash": f"h{i}"} for i in range(num_items)]
+
+    mock_collection = MagicMock()
+    mock_collection.upsert = MagicMock()
+
+    _ip._batch_upsert(mock_collection, docs, metas, ids)
+
+    expected_calls = (num_items + CHROMA_MAX_BATCH - 1) // CHROMA_MAX_BATCH
+    assert mock_collection.upsert.call_count == expected_calls
+
+    first_call_ids = mock_collection.upsert.call_args_list[0][1]["ids"]
+    assert len(first_call_ids) == CHROMA_MAX_BATCH
+
+    last_call_ids = mock_collection.upsert.call_args_list[-1][1]["ids"]
+    assert len(last_call_ids) == num_items % CHROMA_MAX_BATCH
+
+
+def test_delete_is_batched_when_exceeding_max_batch_size():
+    """collection.delete must be called in multiple batches when ids exceed CHROMA_MAX_BATCH."""
+    import index_project as _ip
+
+    num_items = CHROMA_MAX_BATCH + 1
+    ids = [f"file.py::{i}" for i in range(num_items)]
+
+    mock_collection = MagicMock()
+    mock_collection.delete = MagicMock()
+
+    _ip._batch_delete(mock_collection, ids)
+
+    expected_calls = (num_items + CHROMA_MAX_BATCH - 1) // CHROMA_MAX_BATCH
+    assert mock_collection.delete.call_count == expected_calls
 
 
 def test_untracked_query_uses_exclude_standard():
