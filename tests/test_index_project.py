@@ -46,6 +46,41 @@ def test_empty_lines_excluded():
     assert "" not in files
 
 
+def test_chroma_db_excluded_from_tracked():
+    """chroma_db/ must never be indexed even if tracked by git."""
+    with patch("index_project.subprocess.run", side_effect=_fake_run(
+        ["main.py", "chroma_db/chroma.sqlite3", "chroma_db/uuid/data_level0.bin"], []
+    )):
+        files = git_indexable_files()
+    assert not any(f.startswith("chroma_db") for f in files)
+
+
+def test_chroma_db_excluded_from_untracked():
+    """chroma_db/ must never be indexed even if untracked and not gitignored."""
+    with patch("index_project.subprocess.run", side_effect=_fake_run(
+        ["main.py"], ["chroma_db/chroma.sqlite3", "SUMMARY.md"]
+    )):
+        files = git_indexable_files()
+    assert not any(f.startswith("chroma_db") for f in files)
+    assert "SUMMARY.md" in files
+
+
+def test_chroma_db_exclusion_tracks_chroma_path():
+    """Exclusion must use CHROMA_PATH so a rename stays consistent."""
+    import index_project as _ip
+    original = _ip.CHROMA_PATH
+    try:
+        _ip.CHROMA_PATH = "./my_index"
+        with patch("index_project.subprocess.run", side_effect=_fake_run(
+            ["main.py", "my_index/chroma.sqlite3"], []
+        )):
+            files = _ip.git_indexable_files()
+        assert not any(f.startswith("my_index") for f in files)
+        assert "main.py" in files
+    finally:
+        _ip.CHROMA_PATH = original
+
+
 def test_untracked_query_uses_exclude_standard():
     """--exclude-standard ensures gitignored files are not returned as untracked."""
     calls = []
