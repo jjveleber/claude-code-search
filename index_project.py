@@ -13,6 +13,10 @@ CHUNK_MAX = 120
 CHROMA_MAX_BATCH = 5000
 
 
+def _status(msg):
+    print(f"\r\033[K{msg}", end="", flush=True)
+
+
 def _batch_upsert(collection, docs, metas, ids):
     if not ids:
         print("Nothing to upsert.")
@@ -94,10 +98,6 @@ def chunk_lines(lines):
 
 def sha256(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def _status(msg):
-    print(f"\r\033[K{msg}", end="", flush=True)
 
 
 def index_files():
