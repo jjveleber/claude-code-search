@@ -13,6 +13,8 @@ from chromadb.utils.embedding_functions import EmbeddingFunction
 from transformers import AutoTokenizer, AutoModel
 import torch
 
+torch.set_num_threads(os.cpu_count() or 4)
+
 CHROMA_PATH = "./chroma_db"
 COLLECTION_NAME = "project_code"
 CHUNK_TARGET = 60
