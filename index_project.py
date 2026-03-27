@@ -281,6 +281,8 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
         ema = None
         alpha = 0.2
 
+        _status(f"Embedding chunks... 0/{batches_total} batches | ETA **:**:**")
+
         for batch_index, i in enumerate(range(0, total, batch_size), start=1):
             batch = texts[i:i + batch_size]
             start_time = time.time()
@@ -302,9 +304,9 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
             batch_time = time.time() - start_time
             ema = batch_time if ema is None else alpha * batch_time + (1 - alpha) * ema
             batches_left = batches_total - batch_index
-            eta_seconds = ema * batches_left
-            mins, secs = int(eta_seconds // 60), int(eta_seconds % 60)
-            _status(f"Embedding chunks... {batch_index}/{batches_total} batches | ETA {mins}m {secs}s")
+            eta_seconds = int(ema * batches_left)
+            eta = f"{eta_seconds // 3600:02}:{(eta_seconds % 3600) // 60:02}:{eta_seconds % 60:02}"
+            _status(f"Embedding chunks... {batch_index}/{batches_total} batches | ETA {eta}")
 
         return torch.cat(all_embeddings, dim=0).numpy()
 
