@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from collections import Counter
 
+import psutil
+
 import chromadb
 from chromadb.utils.embedding_functions import EmbeddingFunction
 from transformers import AutoTokenizer, AutoModel
@@ -253,15 +255,10 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
         _EMB_MODEL_CACHE[model_name] = (tokenizer, model, device)
 
     def _choose_safe_batch_size(self, max_batch=170, safety_margin_gb=2.0):
-        avail = 4.0
         try:
-            with open("/proc/meminfo") as f:
-                for line in f:
-                    if line.startswith("MemAvailable:"):
-                        avail = int(line.split()[1]) / 1_000_000
-                        break
+            avail = psutil.virtual_memory().available / 1e9
         except Exception:
-            pass
+            avail = 4.0
 
         batch = max_batch
         while batch > 1:

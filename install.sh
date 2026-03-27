@@ -62,7 +62,7 @@ fi
   "watchdog>=3.0" \
   "transformers==4.46.3" \
   "sentencepiece==0.2.0" \
-  "torch==2.11.0"  
+  "torch==2.11.0"
 
 # Restore venv directory mtime to signal reuse (not recreation)
 if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
