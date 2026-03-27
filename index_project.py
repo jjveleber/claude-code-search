@@ -283,8 +283,7 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
         total = len(texts)
         batches_total = (total + batch_size - 1) // batch_size
         all_embeddings = []
-        ema = None
-        alpha = 0.2
+        batch_times = []
 
         if show_progress:
             _status(f"Embedding chunks... 0/{batches_total} batches | ETA **:**:**")
@@ -308,10 +307,15 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
             all_embeddings.append(emb.cpu())
 
             if show_progress:
-                batch_time = time.time() - start_time
-                ema = batch_time if ema is None else alpha * batch_time + (1 - alpha) * ema
+                batch_times.append(time.time() - start_time)
+                # Adaptive window: target ~30s of history, clamped to [10, 200] batches.
+                # Fast throughput (e.g. 10 batches/s) → large window to smooth noise.
+                # Slow batches (e.g. 15s each) → small window to stay responsive.
+                avg_so_far = sum(batch_times) / len(batch_times)
+                window = max(10, min(200, int(30 / max(avg_so_far, 0.001))))
+                avg_batch_time = sum(batch_times[-window:]) / min(len(batch_times), window)
                 batches_left = batches_total - batch_index
-                eta_seconds = int(ema * batches_left)
+                eta_seconds = int(avg_batch_time * batches_left)
                 eta = f"{eta_seconds // 3600:02}:{(eta_seconds % 3600) // 60:02}:{eta_seconds % 60:02}"
                 _status(f"Embedding chunks... {batch_index}/{batches_total} batches | ETA {eta}")
 
