@@ -8,3 +8,10 @@ __pycache__/
 .watch_index.pid
 
 code-search-sandbox/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
