@@ -25,7 +25,7 @@ def _status(msg):
     print(f"\r\033[K{msg}", end="", flush=True)
 
 
-def _batch_upsert(collection, docs, metas, ids):
+def _batch_upsert(collection, docs, metas, ids, embeddings=None):
     if not ids:
         print("Nothing to upsert.")
         return
@@ -36,6 +36,7 @@ def _batch_upsert(collection, docs, metas, ids):
         _status(f"Upserting... batch {b} / {total_batches} ({done:,} / {total:,} chunks)")
         collection.upsert(
             documents=docs[i:i + CHROMA_MAX_BATCH],
+            embeddings=embeddings[i:i + CHROMA_MAX_BATCH] if embeddings is not None else None,
             metadatas=metas[i:i + CHROMA_MAX_BATCH],
             ids=ids[i:i + CHROMA_MAX_BATCH],
         )
@@ -248,38 +249,33 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
 
         _EMB_MODEL_CACHE[model_name] = (tokenizer, model, device)
 
-    def __call__(self, texts):
+    def _choose_safe_batch_size(self, max_batch=170, safety_margin_gb=2.0):
+        try:
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemAvailable:"):
+                        avail = int(line.split()[1]) / 1_000_000
+                        break
+            else:
+                avail = 4.0
+        except Exception:
+            avail = 4.0
+
+        batch = max_batch
+        while batch > 1:
+            needed = 1.2 + batch * 0.18
+            if needed + safety_margin_gb < avail:
+                return batch
+            batch //= 2
+        return 1
+
+    def embed(self, texts):
+        """Embed all texts in memory-aware batches with unified progress display."""
+        import time
         if isinstance(texts, str):
             texts = [texts]
 
-        # --- Memory-aware batch size selection ---
-        def get_available_memory_gb():
-            try:
-                with open("/proc/meminfo") as f:
-                    for line in f:
-                        if line.startswith("MemAvailable:"):
-                            kb = int(line.split()[1])
-                            return kb / 1_000_000
-            except Exception:
-                return 4.0
-            return 4.0
-
-        def estimate_batch_memory_gb(batch_size):
-            model_overhead = 1.2
-            per_item = 0.18
-            return model_overhead + batch_size * per_item
-
-        def choose_safe_batch_size(max_batch=170, safety_margin_gb=2.0):
-            avail = get_available_memory_gb()
-            batch = max_batch
-            while batch > 1:
-                if estimate_batch_memory_gb(batch) + safety_margin_gb < avail:
-                    return batch
-                batch //= 2
-            return 1
-
-        import time
-        batch_size = choose_safe_batch_size()
+        batch_size = self._choose_safe_batch_size()
         total = len(texts)
         batches_total = (total + batch_size - 1) // batch_size
         all_embeddings = []
@@ -312,6 +308,10 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
             _status(f"Embedding chunks... {batch_index}/{batches_total} batches | ETA {mins}m {secs}s")
 
         return torch.cat(all_embeddings, dim=0).numpy()
+
+    def __call__(self, texts):
+        """Called by ChromaDB for query-time embedding."""
+        return self.embed(texts)
 
 
 def index_files():
@@ -389,7 +389,10 @@ def index_files():
         for path, reason in skipped_files:
             print(f"  {path} ({reason})")
 
-    _batch_upsert(collection, docs_to_upsert, metas_to_upsert, ids_to_upsert)
+    embeddings = emb_fn.embed(docs_to_upsert) if docs_to_upsert else None
+    if docs_to_upsert:
+        print()  # end embedding line
+    _batch_upsert(collection, docs_to_upsert, metas_to_upsert, ids_to_upsert, embeddings)
     _batch_delete(collection, to_delete)
 
     print(
