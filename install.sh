@@ -62,6 +62,7 @@ fi
   "watchdog>=3.0" \
   "transformers==4.46.3" \
   "sentencepiece==0.2.0" \
+  "psutil>=5.9" \
   "torch==2.11.0"
 
 # Restore venv directory mtime to signal reuse (not recreation)
