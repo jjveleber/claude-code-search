@@ -61,10 +61,8 @@ fi
   "chromadb>=1.0" \
   "watchdog>=3.0" \
   "transformers==4.46.3" \
-  "sentencepiece==0.2.0"
-
-"$VENV_PATH/bin/pip" install \
-  "torch==2.11.0" --index-url https://download.pytorch.org/whl/cpu
+  "sentencepiece==0.2.0" \
+  "torch==2.11.0"  
 
 # Restore venv directory mtime to signal reuse (not recreation)
 if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
