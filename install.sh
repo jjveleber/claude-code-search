@@ -64,7 +64,7 @@ fi
   "sentencepiece==0.2.0"
 
 "$VENV_PATH/bin/pip" install \
-  "torch==2.11.0+cpu" --index-url https://download.pytorch.org/whl/cpu
+  "torch==2.11.0" --index-url https://download.pytorch.org/whl/cpu
 
 # Restore venv directory mtime to signal reuse (not recreation)
 if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then

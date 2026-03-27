@@ -4,7 +4,7 @@ Semantic code search for any project. Install with one command — Claude can th
 
 ## Prerequisites
 
-- Python 3.9+
+- Python 3.12
 - A git repository (the indexer uses `git ls-files`)
 
 ## Install
