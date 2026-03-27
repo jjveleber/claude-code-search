@@ -2,6 +2,7 @@ import hashlib
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from collections import Counter
 
@@ -207,14 +208,16 @@ def detect_languages(files):
 
 
 def choose_model(lang_counts):
+    """Pick the best embedding model for the detected language mix.
+
+    Current rule: pure infra/config repos use codebert-base; everything
+    else uses graphcodebert-base. Finer-grained selection (e.g. systems
+    languages, web stack) is left for a future iteration.
+    """
     if not lang_counts:
         return "microsoft/graphcodebert-base"
 
     langs = set(lang_counts.keys())
-
-    gcb_langs = {"python", "javascript", "java", "go", "php", "ruby"}
-    systems_langs = {"rust", "cpp", "c", "csharp", "swift", "kotlin"}
-    web_langs = {"javascript", "typescript", "html", "css", "scss", "svelte", "vue"}
     infra_langs = {"yaml", "json", "toml", "ini", "terraform", "docker", "kubernetes"}
 
     if langs.issubset(infra_langs):
@@ -268,9 +271,11 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
             batch //= 2
         return 1
 
-    def embed(self, texts):
-        """Embed all texts in memory-aware batches with unified progress display."""
-        import time
+    def embed(self, texts, show_progress=False):
+        """Embed all texts in memory-aware batches.
+
+        show_progress: display in-place ETA status (for bulk indexing).
+        """
         if isinstance(texts, str):
             texts = [texts]
 
@@ -281,7 +286,8 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
         ema = None
         alpha = 0.2
 
-        _status(f"Embedding chunks... 0/{batches_total} batches | ETA **:**:**")
+        if show_progress:
+            _status(f"Embedding chunks... 0/{batches_total} batches | ETA **:**:**")
 
         for batch_index, i in enumerate(range(0, total, batch_size), start=1):
             batch = texts[i:i + batch_size]
@@ -301,12 +307,13 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
 
             all_embeddings.append(emb.cpu())
 
-            batch_time = time.time() - start_time
-            ema = batch_time if ema is None else alpha * batch_time + (1 - alpha) * ema
-            batches_left = batches_total - batch_index
-            eta_seconds = int(ema * batches_left)
-            eta = f"{eta_seconds // 3600:02}:{(eta_seconds % 3600) // 60:02}:{eta_seconds % 60:02}"
-            _status(f"Embedding chunks... {batch_index}/{batches_total} batches | ETA {eta}")
+            if show_progress:
+                batch_time = time.time() - start_time
+                ema = batch_time if ema is None else alpha * batch_time + (1 - alpha) * ema
+                batches_left = batches_total - batch_index
+                eta_seconds = int(ema * batches_left)
+                eta = f"{eta_seconds // 3600:02}:{(eta_seconds % 3600) // 60:02}:{eta_seconds % 60:02}"
+                _status(f"Embedding chunks... {batch_index}/{batches_total} batches | ETA {eta}")
 
         return torch.cat(all_embeddings, dim=0).numpy()
 
@@ -327,6 +334,10 @@ def index_files():
     print(f"Embedding model: {model_name}")
 
     emb_fn = HFCodeEmbeddingFunction(model_name)
+
+    # Write model name so search_code.py can load the same embedding function
+    Path(CHROMA_PATH).mkdir(parents=True, exist_ok=True)
+    Path(CHROMA_PATH, "model.txt").write_text(model_name)
 
     collection = client.get_or_create_collection(
         name=COLLECTION_NAME,
@@ -390,7 +401,7 @@ def index_files():
         for path, reason in skipped_files:
             print(f"  {path} ({reason})")
 
-    embeddings = emb_fn.embed(docs_to_upsert) if docs_to_upsert else None
+    embeddings = emb_fn.embed(docs_to_upsert, show_progress=True) if docs_to_upsert else None
     if docs_to_upsert:
         print()  # end embedding line
     _batch_upsert(collection, docs_to_upsert, metas_to_upsert, ids_to_upsert, embeddings)

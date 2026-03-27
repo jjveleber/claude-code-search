@@ -61,7 +61,6 @@ fi
   "chromadb>=1.0" \
   "watchdog>=3.0" \
   "transformers==4.46.3" \
-  "accelerate==0.28.0" \
   "sentencepiece==0.2.0"
 
 "$VENV_PATH/bin/pip" install \

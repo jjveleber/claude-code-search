@@ -1,9 +1,17 @@
 import sys
+from pathlib import Path
 import chromadb
-from chromadb.utils import embedding_functions
+from index_project import HFCodeEmbeddingFunction
 
 CHROMA_PATH = "./chroma_db"
 COLLECTION_NAME = "project_code"
+_DEFAULT_MODEL = "microsoft/graphcodebert-base"
+
+
+def _load_embedding_fn():
+    model_file = Path(CHROMA_PATH) / "model.txt"
+    model_name = model_file.read_text().strip() if model_file.exists() else _DEFAULT_MODEL
+    return HFCodeEmbeddingFunction(model_name)
 
 
 def merge_chunks(results):
@@ -35,7 +43,7 @@ def merge_chunks(results):
 
 def search(query, n_results=5):
     client = chromadb.PersistentClient(path=CHROMA_PATH)
-    emb_fn = embedding_functions.DefaultEmbeddingFunction()
+    emb_fn = _load_embedding_fn()
     try:
         collection = client.get_collection(
             name=COLLECTION_NAME, embedding_function=emb_fn
