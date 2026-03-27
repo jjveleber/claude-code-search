@@ -250,16 +250,15 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
         _EMB_MODEL_CACHE[model_name] = (tokenizer, model, device)
 
     def _choose_safe_batch_size(self, max_batch=170, safety_margin_gb=2.0):
+        avail = 4.0
         try:
             with open("/proc/meminfo") as f:
                 for line in f:
                     if line.startswith("MemAvailable:"):
                         avail = int(line.split()[1]) / 1_000_000
                         break
-            else:
-                avail = 4.0
         except Exception:
-            avail = 4.0
+            pass
 
         batch = max_batch
         while batch > 1:
