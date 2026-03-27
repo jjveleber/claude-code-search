@@ -277,6 +277,7 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
             texts = [texts]
 
         batch_size = self._choose_safe_batch_size()
+        print(f"Embedding batch size: {batch_size}")
         total = len(texts)
         batches_total = (total + batch_size - 1) // batch_size
         all_embeddings = []
