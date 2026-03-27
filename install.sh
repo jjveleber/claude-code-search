@@ -5,10 +5,12 @@ REPO_OWNER="${CODE_SEARCH_OWNER:-jjveleber}"
 BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/claude-code-search/main"
 
 # Step 1: Check Python version
+# TODO: determine the full supported range (floor and ceiling) for torch/transformers compatibility.
+#       Known: 3.12 works. 3.14 does not. Using strict 3.12 until range is confirmed.
 PYTHON_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
 PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
-if [ "$PYTHON_MAJOR" -lt 3 ] || { [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 9 ]; }; then
-    echo "Error: Python 3.9+ required (found $(python3 --version))"
+if [ "$PYTHON_MAJOR" -ne 3 ] || [ "$PYTHON_MINOR" -ne 12 ]; then
+    echo "Error: Python 3.12 required (found $(python3 --version))"
     exit 1
 fi
 
@@ -53,7 +55,17 @@ if [ "$VENV_EXISTED" = true ]; then
 fi
 
 # Step 4: Install chromadb
-"$VENV_PATH/bin/pip" install "chromadb>=1.0" "watchdog>=3.0"
+"$VENV_PATH/bin/python3" -m pip install --upgrade pip
+
+"$VENV_PATH/bin/pip" install \
+  "chromadb>=1.0" \
+  "watchdog>=3.0" \
+  "transformers==4.46.3" \
+  "accelerate==0.28.0" \
+  "sentencepiece==0.2.0"
+
+"$VENV_PATH/bin/pip" install \
+  "torch==2.11.0+cpu" --index-url https://download.pytorch.org/whl/cpu
 
 # Restore venv directory mtime to signal reuse (not recreation)
 if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
