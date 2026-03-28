@@ -100,8 +100,10 @@ def handle_post():
     elif tool == "Read":
         path = tool_input.get("file_path", "")
         entry["file"] = path
-        content = tool_result.get("content", "") if isinstance(tool_result, dict) else str(tool_result)
-        entry["bytes"] = len(content.encode())
+        try:
+            entry["bytes"] = os.path.getsize(path)
+        except OSError:
+            entry["bytes"] = 0
 
     elif tool == "Edit":
         entry["file"] = tool_input.get("file_path", "")
@@ -112,12 +114,50 @@ def handle_post():
     _append(entry)
 
 
+def _read_last_usage(transcript_path):
+    """Read the last assistant message's usage from the transcript JSONL."""
+    try:
+        last_usage = {}
+        with open(transcript_path) as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                    msg = entry.get("message", {})
+                    if msg.get("role") == "assistant":
+                        usage = msg.get("usage")
+                        if usage:
+                            last_usage = usage
+                except json.JSONDecodeError:
+                    continue
+        return last_usage
+    except OSError:
+        return {}
+
+
 def handle_stop():
-    """Stop hook: mark task end."""
+    """Stop hook: mark task end. Reads actual token usage from transcript."""
     task_id = _current_task_id()
+
+    try:
+        data = json.load(sys.stdin)
+        transcript_path = data.get("transcript_path", "")
+    except (json.JSONDecodeError, EOFError):
+        transcript_path = ""
+
     if task_id:
-        _append({"type": "task_end", "task_id": task_id,
-                 "ts": datetime.now().isoformat(timespec="seconds")})
+        entry = {"type": "task_end", "task_id": task_id,
+                 "ts": datetime.now().isoformat(timespec="seconds")}
+        if transcript_path:
+            raw = _read_last_usage(transcript_path)
+            if raw:
+                entry["usage"] = {
+                    "input_tokens": raw.get("input_tokens", 0),
+                    "output_tokens": raw.get("output_tokens", 0),
+                    "cache_creation_input_tokens": raw.get("cache_creation_input_tokens", 0),
+                    "cache_read_input_tokens": raw.get("cache_read_input_tokens", 0),
+                }
+        _append(entry)
+
     # Clear task file so next prompt starts fresh
     try:
         os.remove(TASK_FILE)

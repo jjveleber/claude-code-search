@@ -5,7 +5,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from eval.session import parse_session_log, compute_task_metrics, compute_summary
+from eval.session import parse_session_log, parse_task_usage, compute_task_metrics, compute_summary
 
 
 def _write_log(lines, tmpdir):
@@ -83,6 +83,58 @@ def test_compute_task_metrics_token_estimation():
     assert metrics["tokens"]["files_read_bytes"] == 4000
     assert metrics["tokens"]["search_result_bytes"] == 800
     assert metrics["tokens"]["estimated_tokens"] == (4000 + 800) // 4
+
+
+def test_compute_task_metrics_with_actual_usage():
+    tool_calls = [
+        {"tool": "Read", "file": "a.cpp", "bytes": 4000, "ts": "10:00:01"},
+        {"tool": "Edit", "file": "a.cpp", "ts": "10:00:02"},
+    ]
+    usage = {"input_tokens": 1500, "output_tokens": 200,
+             "cache_creation_input_tokens": 100, "cache_read_input_tokens": 800}
+    metrics = compute_task_metrics("t1", tool_calls, usage=usage)
+    assert metrics["tokens"]["input_tokens"] == 1500
+    assert metrics["tokens"]["output_tokens"] == 200
+    assert metrics["tokens"]["cache_creation_input_tokens"] == 100
+    assert metrics["tokens"]["cache_read_input_tokens"] == 800
+    assert metrics["tokens"]["estimated_tokens"] == 4000 // 4  # still present
+
+
+def test_parse_task_usage():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        log_path = os.path.join(tmpdir, "session-test.log")
+        lines = [
+            {"type": "task_start", "task_id": "t1", "ts": "10:00:00"},
+            {"type": "tool", "tool": "Read", "file": "a.cpp", "bytes": 100, "task_id": "t1", "ts": "10:00:01"},
+            {"type": "task_end", "task_id": "t1", "ts": "10:00:05",
+             "usage": {"input_tokens": 500, "output_tokens": 80,
+                       "cache_creation_input_tokens": 50, "cache_read_input_tokens": 300}},
+            {"type": "task_start", "task_id": "t2", "ts": "10:01:00"},
+            {"type": "task_end", "task_id": "t2", "ts": "10:01:30"},
+        ]
+        with open(log_path, "w") as f:
+            for line in lines:
+                f.write(json.dumps(line) + "\n")
+        usage = parse_task_usage(log_path)
+    assert "t1" in usage
+    assert usage["t1"]["input_tokens"] == 500
+    assert usage["t1"]["output_tokens"] == 80
+    assert "t2" not in usage  # no usage in t2's task_end
+
+
+def test_compute_summary_prefers_actual_tokens():
+    tasks = [
+        {"id": "t1", "edited_files": [], "discarded_reads": [],
+         "search_calls": 0, "grep_fallbacks": 0, "total_tool_calls": 5,
+         "tokens": {"estimated_tokens": 0, "input_tokens": 1000, "output_tokens": 200,
+                    "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}},
+        {"id": "t2", "edited_files": [], "discarded_reads": [],
+         "search_calls": 0, "grep_fallbacks": 0, "total_tool_calls": 3,
+         "tokens": {"estimated_tokens": 0, "input_tokens": 600, "output_tokens": 100,
+                    "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}},
+    ]
+    summary = compute_summary(tasks)
+    assert summary["avg_estimated_tokens_per_task"] == (1200 + 700) / 2  # input+output
 
 
 def test_compute_summary():
