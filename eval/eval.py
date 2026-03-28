@@ -42,6 +42,65 @@ def cmd_results(args):
               f"{'yes' if g.get('dirty') else 'no'}")
 
 
+def cmd_prepare(args):
+    from eval.repo import prepare
+    prepare(args.mode)
+    print(f"\nTask list for {args.mode} session:")
+    _print_task_list(args.benchmark or DEFAULT_BENCHMARK)
+
+
+def cmd_next_task(args):
+    import json
+    _print_task_list(args.benchmark or DEFAULT_BENCHMARK, interactive=True)
+
+
+def _print_task_list(benchmark_file, interactive=False):
+    import json
+    # .eval_current_task lives in the project root, not relative to benchmark
+    current_task_file = os.path.join(ROOT_DIR, ".eval_current_task")
+    task_index_file = os.path.join(ROOT_DIR, ".eval_task_index")
+
+    with open(benchmark_file) as f:
+        entries = json.load(f)
+
+    if not interactive:
+        print("\nTasks to run (in order):")
+        for e in entries:
+            print(f"  [{e['id']}] {e['prompt']}")
+        return
+
+    # Read current task index (default 0)
+    try:
+        with open(task_index_file) as f:
+            idx = int(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        idx = 0
+
+    if idx >= len(entries):
+        print("All tasks complete. Run 'eval.py analyze <mode>' to process the session log.")
+        # Clear index for next run
+        try:
+            os.remove(task_index_file)
+        except FileNotFoundError:
+            pass
+        return
+
+    e = entries[idx]
+    print(f"Task {idx + 1} of {len(entries)}")
+    print(f"Task ID: {e['id']}")
+    print(f"Prompt:  {e['prompt']}")
+    print()
+    print("Run this prompt in Claude Code, then run 'eval.py next-task' for the next one.")
+
+    # Write task ID to temp file for capture hook
+    with open(current_task_file, "w") as f:
+        f.write(e["id"])
+
+    # Advance index
+    with open(task_index_file, "w") as f:
+        f.write(str(idx + 1))
+
+
 def main():
     parser = argparse.ArgumentParser(description="claude-code-search eval framework")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -55,6 +114,17 @@ def main():
     # results
     p_results = sub.add_parser("results", help="List saved reports")
     p_results.set_defaults(func=cmd_results)
+
+    # prepare
+    p_prepare = sub.add_parser("prepare", help="Reset repo, re-index, configure hooks")
+    p_prepare.add_argument("mode", choices=["baseline", "run", "restore"])
+    p_prepare.add_argument("--benchmark", help="Path to benchmark JSON")
+    p_prepare.set_defaults(func=cmd_prepare)
+
+    # next-task
+    p_next = sub.add_parser("next-task", help="Print next task prompt and register task ID")
+    p_next.add_argument("--benchmark", help="Path to benchmark JSON")
+    p_next.set_defaults(func=cmd_next_task)
 
     args = parser.parse_args()
     args.func(args)
