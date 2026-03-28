@@ -119,4 +119,7 @@ def prepare(mode):
     reset_repo()
     run_reindex()
     configure_hooks(mode)
-    print(f"Ready. Run your task prompts in Claude Code, then: eval.py analyze {mode}")
+    if mode == "restore":
+        print("Hooks restored to production state.")
+    else:
+        print(f"Ready. Run your task prompts in Claude Code, then: eval.py analyze {mode}")

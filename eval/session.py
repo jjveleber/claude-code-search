@@ -51,7 +51,9 @@ def compute_task_metrics(task_id, tool_calls):
         tool = call.get("tool", "")
 
         if tool == "Edit" or tool == "Write":
-            edited.add(call.get("file", ""))
+            f = call.get("file", "")
+            if f:
+                edited.add(f)
 
         elif tool == "Read":
             f = call.get("file", "")
@@ -93,6 +95,7 @@ def compute_summary(task_metrics):
     return {
         "discarded_reads_total": sum(len(t["discarded_reads"]) for t in task_metrics),
         "avg_tool_calls_per_task": sum(t["total_tool_calls"] for t in task_metrics) / n,
+        "avg_search_calls_per_task": sum(t["search_calls"] for t in task_metrics) / n,
         "grep_fallback_rate": sum(1 for t in task_metrics if t["grep_fallbacks"] > 0) / n,
         "avg_estimated_tokens_per_task": sum(
             t["tokens"]["estimated_tokens"] for t in task_metrics

@@ -93,8 +93,8 @@ def run_unit_eval(benchmark_file, top=5, config=None):
             capture_output=True, text=True
         )
 
-        if result.returncode == 1:
-            print(f"Error: index not found. Run index_project.py first.", file=sys.stderr)
+        if result.returncode != 0:
+            print(f"Error: search_code.py exited with code {result.returncode}. Run index_project.py first.", file=sys.stderr)
             sys.exit(1)
 
         paths = parse_search_output(result.stdout)

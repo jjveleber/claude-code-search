@@ -106,7 +106,7 @@ def cmd_analyze(args):
     from eval.session import analyze_session
     from eval.report import write_report
 
-    results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+    results_dir = RESULTS_DIR
     logs = sorted(glob.glob(os.path.join(results_dir, "session-*.log")))
     if not logs:
         print("No session log found in eval/results/. Run a session with capture hooks active first.")
@@ -187,9 +187,14 @@ def cmd_compare(args):
 
     mode_a = a.get("mode")
     mode_b = b.get("mode")
-    if mode_a != mode_b:
+
+    # Determine display mode: baseline+run pair is a valid integration comparison
+    integration_pair = {mode_a, mode_b} == {"baseline", "run"}
+    if mode_a != mode_b and not integration_pair:
         print(f"Warning: comparing {mode_a} vs {mode_b} — only shared metadata shown.\n")
         return
+
+    display_mode = mode_a if mode_a == mode_b else "baseline"  # for integration pair, use integration display
 
     def _row(label, val_a, val_b, fmt="{:.2f}", lower_is_better=True):
         try:
@@ -216,22 +221,23 @@ def cmd_compare(args):
     sa = a.get("summary", {})
     sb = b.get("summary", {})
 
-    if mode_a == "unit":
+    if display_mode == "unit":
         print("Unit metrics:")
         _row("hit_rate",       sa.get("hit_rate"),       sb.get("hit_rate"),       lower_is_better=False)
         _row("recall@k",       sa.get("recall_at_k"),    sb.get("recall_at_k"),    lower_is_better=False)
         _row("MRR",            sa.get("MRR"),            sb.get("MRR"),            lower_is_better=False)
         _row("precision@k",    sa.get("precision_at_k"), sb.get("precision_at_k"), lower_is_better=False)
     else:
-        # Integration metrics (baseline vs run)
+        # Integration metrics (baseline vs run or same-mode integration comparison)
         print("Integration metrics:")
-        _row("discarded_reads_total",      sa.get("discarded_reads_total"),       sb.get("discarded_reads_total"),       fmt="{:.0f}")
-        _row("avg_tool_calls_per_task",    sa.get("avg_tool_calls_per_task"),     sb.get("avg_tool_calls_per_task"),     fmt="{:.1f}")
-        _row("grep_fallback_rate",         sa.get("grep_fallback_rate"),          sb.get("grep_fallback_rate"),          fmt="{:.0%}")
-        _row("avg_estimated_tokens/task",  sa.get("avg_estimated_tokens_per_task"), sb.get("avg_estimated_tokens_per_task"), fmt="{:.0f}")
+        _row("discarded_reads_total",      sa.get("discarded_reads_total"),           sb.get("discarded_reads_total"),           fmt="{:.0f}")
+        _row("avg_tool_calls_per_task",    sa.get("avg_tool_calls_per_task"),         sb.get("avg_tool_calls_per_task"),         fmt="{:.1f}")
+        _row("avg_search_calls_per_task",  sa.get("avg_search_calls_per_task"),       sb.get("avg_search_calls_per_task"),       fmt="{:.1f}", lower_is_better=False)
+        _row("grep_fallback_rate",         sa.get("grep_fallback_rate"),              sb.get("grep_fallback_rate"),              fmt="{:.0%}")
+        _row("avg_estimated_tokens/task",  sa.get("avg_estimated_tokens_per_task"),   sb.get("avg_estimated_tokens_per_task"),   fmt="{:.0f}")
 
-    # edit_hit_rate only meaningful when comparing baseline vs run
-    if {mode_a, mode_b} == {"baseline", "run"}:
+    # edit_hit_rate: meaningful for baseline vs run pair
+    if integration_pair:
         baseline_report = a if mode_a == "baseline" else b
         run_report = b if mode_b == "run" else a
         hit_rate = _compute_edit_hit_rate(baseline_report, run_report)
