@@ -16,3 +16,9 @@ code-search-sandbox/
 # OS
 .DS_Store
 .worktrees/
+
+eval/results/*.json
+eval/results/*.log
+.eval_current_task
+.eval_task_index
+.eval_session_log
