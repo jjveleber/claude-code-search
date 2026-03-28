@@ -1,0 +1,37 @@
+[
+  {
+    "id": "cpython-001",
+    "prompt": "Find where the GIL (Global Interpreter Lock) is acquired and released during thread switching",
+    "expected_files": [],
+    "acceptable_files": [],
+    "notes": "Tests navigation to core threading/concurrency machinery"
+  },
+  {
+    "id": "cpython-002",
+    "prompt": "Find the implementation of list.append and how it handles dynamic array resizing",
+    "expected_files": [],
+    "acceptable_files": [],
+    "notes": "Tests navigation to a well-known built-in method"
+  },
+  {
+    "id": "cpython-003",
+    "prompt": "Find where Python dict lookup is implemented and how hash collision resolution works",
+    "expected_files": [],
+    "acceptable_files": [],
+    "notes": "Tests navigation to dict internals"
+  },
+  {
+    "id": "cpython-004",
+    "prompt": "Find where the bytecode compiler generates LOAD_FAST and STORE_FAST instructions for local variables",
+    "expected_files": [],
+    "acceptable_files": [],
+    "notes": "Tests navigation to the compiler/codegen layer"
+  },
+  {
+    "id": "cpython-005",
+    "prompt": "Find the CPython garbage collector's cycle detection algorithm",
+    "expected_files": [],
+    "acceptable_files": [],
+    "notes": "Tests navigation to the cyclic GC"
+  }
+]
