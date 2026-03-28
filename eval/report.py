@@ -63,6 +63,6 @@ def list_reports(results_dir=None):
             report = read_report(str(p))
             report["_path"] = str(p)
             reports.append(report)
-        except (json.JSONDecodeError, KeyError):
+        except json.JSONDecodeError:
             continue
     return sorted(reports, key=lambda r: r.get("timestamp", ""))
