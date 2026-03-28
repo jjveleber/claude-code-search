@@ -241,6 +241,8 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
             return
 
         print(f"Loading model: {model_name}")
+        import transformers
+        transformers.logging.set_verbosity_error()
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModel.from_pretrained(model_name)
 
