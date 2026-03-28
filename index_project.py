@@ -400,6 +400,7 @@ def index_files():
                 "start_line": start,
                 "end_line": end,
                 "hash": h,
+                "lang": LANG_MAP.get(Path(filepath).suffix.lower(), "unknown"),
             })
             ids_to_upsert.append(chunk_id)
 
@@ -415,6 +416,10 @@ def index_files():
         print()  # end embedding line
     _batch_upsert(collection, docs_to_upsert, metas_to_upsert, ids_to_upsert, embeddings)
     _batch_delete(collection, to_delete)
+
+    import json as _json
+    _json_path = Path(CHROMA_PATH) / "langs.json"
+    _json_path.write_text(_json.dumps(dict(lang_counts)))
 
     print(
         f"Files scanned: {files_scanned} | "

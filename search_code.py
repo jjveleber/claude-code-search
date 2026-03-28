@@ -1,4 +1,5 @@
 import sys
+import json
 from pathlib import Path
 import chromadb
 from index_project import HFCodeEmbeddingFunction
@@ -6,12 +7,25 @@ from index_project import HFCodeEmbeddingFunction
 CHROMA_PATH = "./chroma_db"
 COLLECTION_NAME = "project_code"
 _DEFAULT_MODEL = "microsoft/graphcodebert-base"
+_DOC_LANGS = frozenset({"restructuredtext", "markdown"})
 
 
 def _load_embedding_fn():
     model_file = Path(CHROMA_PATH) / "model.txt"
     model_name = model_file.read_text().strip() if model_file.exists() else _DEFAULT_MODEL
     return HFCodeEmbeddingFunction(model_name)
+
+
+def _load_source_langs():
+    """Return non-doc languages present in the index, or empty set if unavailable."""
+    langs_file = Path(CHROMA_PATH) / "langs.json"
+    if not langs_file.exists():
+        return set()
+    try:
+        lang_counts = json.loads(langs_file.read_text())
+        return {lang for lang in lang_counts if lang not in _DOC_LANGS}
+    except Exception:
+        return set()
 
 
 def merge_chunks(results):
@@ -41,7 +55,7 @@ def merge_chunks(results):
     return merged
 
 
-def search(query, n_results=5):
+def search(query, n_results=5, all_files=False):
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     emb_fn = _load_embedding_fn()
     try:
@@ -60,8 +74,13 @@ def search(query, n_results=5):
         print("No results found.")
         sys.exit(2)
 
+    source_langs = set() if all_files else _load_source_langs()
+    where = {"lang": {"$in": list(source_langs)}} if source_langs else None
+
     results = collection.query(
-        query_texts=[query], n_results=min(n_results, count)
+        query_texts=[query],
+        n_results=min(n_results, count),
+        **({"where": where} if where else {}),
     )
 
     merged = merge_chunks(results)
@@ -88,5 +107,9 @@ if __name__ == "__main__":
         "--top", type=int, default=5, metavar="N",
         help="Number of results to return (default: 5)"
     )
+    parser.add_argument(
+        "--all", action="store_true", dest="all_files",
+        help="Search all files including docs (default: source files only)",
+    )
     args = parser.parse_args()
-    search(" ".join(args.query), n_results=args.top)
+    search(" ".join(args.query), n_results=args.top, all_files=args.all_files)
