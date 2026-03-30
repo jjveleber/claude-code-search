@@ -64,3 +64,31 @@ class TestChunkLinesFallback:
         chunks = _chunk_lines_fallback(lines)
         for start, end, text in chunks:
             assert (end - start + 1) <= CHUNK_MAX + 1  # +1 for blank line extension
+
+
+from chunker import _get_parser
+
+
+class TestGetParser:
+    def test_returns_parser_for_known_grammar(self):
+        parser = _get_parser("python")
+        assert parser is not None
+
+    def test_returns_none_for_unknown_grammar(self):
+        parser = _get_parser("not_a_real_language_xyz")
+        assert parser is None
+
+    def test_parser_is_cached(self):
+        p1 = _get_parser("python")
+        p2 = _get_parser("python")
+        assert p1 is p2
+
+    def test_parser_can_parse_python(self):
+        parser = _get_parser("python")
+        tree = parser.parse(b"def foo():\n    return 1\n")
+        assert tree.root_node.type == "module"
+
+    def test_parser_can_parse_c(self):
+        parser = _get_parser("c")
+        tree = parser.parse(b"int add(int a, int b) { return a + b; }\n")
+        assert tree.root_node.type == "translation_unit"

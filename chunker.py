@@ -63,6 +63,23 @@ _NODE_TYPES = {
 _PARSER_CACHE = {}
 
 
+def _get_parser(grammar_name):
+    """Load and cache a tree-sitter Parser for the given grammar name.
+
+    Returns None if the grammar is unavailable or fails to load.
+    """
+    if grammar_name in _PARSER_CACHE:
+        return _PARSER_CACHE[grammar_name]
+    try:
+        from tree_sitter_languages import get_parser
+        parser = get_parser(grammar_name)
+        _PARSER_CACHE[grammar_name] = parser
+        return parser
+    except Exception:
+        _PARSER_CACHE[grammar_name] = None
+        return None
+
+
 def chunk_file(filepath, lines):
     """Chunk a file using tree-sitter semantic boundaries where possible.
 
