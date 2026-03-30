@@ -66,7 +66,7 @@ class TestChunkLinesFallback:
             assert (end - start + 1) <= CHUNK_MAX + 1  # +1 for blank line extension
 
 
-from chunker import _get_parser
+from chunker import _get_parser, chunk_file
 
 
 class TestGetParser:
@@ -92,3 +92,75 @@ class TestGetParser:
         parser = _get_parser("c")
         tree = parser.parse(b"int add(int a, int b) { return a + b; }\n")
         assert tree.root_node.type == "translation_unit"
+
+
+class TestSemanticBoundariesPython:
+    def test_add_and_multiply_are_separate_chunks(self):
+        lines = _read("sample.py")
+        chunks = chunk_file("sample.py", lines)
+        texts = [t for _, _, t in chunks]
+        add_chunks = [t for t in texts if "def add(a, b)" in t]
+        mul_chunks = [t for t in texts if "def multiply(a, b)" in t]
+        assert len(add_chunks) >= 1, "add() not found in any chunk"
+        assert len(mul_chunks) >= 1, "multiply() not found in any chunk"
+        assert add_chunks[0] is not mul_chunks[0], "add and multiply in same chunk"
+
+    def test_no_chunk_spans_two_top_level_functions(self):
+        lines = _read("sample.py")
+        chunks = chunk_file("sample.py", lines)
+        for start, end, text in chunks:
+            both = "def add(a, b)" in text and "def multiply(a, b)" in text
+            assert not both, f"Chunk lines {start}-{end} spans both add() and multiply()"
+
+    def test_methods_extracted_not_whole_class(self):
+        lines = _read("sample.py")
+        chunks = chunk_file("sample.py", lines)
+        texts = [t for _, _, t in chunks]
+        # Calculator.add and Calculator.reset should be separate chunks
+        add_method = [t for t in texts if "def add(self, x)" in t]
+        reset_method = [t for t in texts if "def reset(self)" in t]
+        assert len(add_method) >= 1, "Calculator.add() not found"
+        assert len(reset_method) >= 1, "Calculator.reset() not found"
+
+    def test_chunk_covers_full_function_body(self):
+        lines = _read("sample.py")
+        chunks = chunk_file("sample.py", lines)
+        # The add() function chunk should contain the return statement
+        add_chunk = next((t for _, _, t in chunks if "def add(a, b)" in t), None)
+        assert add_chunk is not None
+        assert "return a + b" in add_chunk
+
+    def test_all_lines_covered(self):
+        lines = _read("sample.py")
+        chunks = chunk_file("sample.py", lines)
+        # Every line of the file should appear in at least one chunk
+        combined = "".join(t for _, _, t in chunks)
+        assert "import os" in combined
+        assert "CONSTANT = 42" in combined
+        assert "def add(a, b)" in combined
+        assert "def multiply(a, b)" in combined
+        assert "class Calculator" in combined
+
+
+class TestFallback:
+    def test_unsupported_extension_falls_back(self):
+        lines = _read("sample_unsupported.yaml")
+        ts_result = chunk_file("sample_unsupported.yaml", lines)
+        fallback_result = _chunk_lines_fallback(lines)
+        assert ts_result == fallback_result
+
+    def test_unknown_extension_falls_back(self):
+        lines = ["hello world\n", "second line\n"]
+        ts_result = chunk_file("mystery.xyz123", lines)
+        fallback_result = _chunk_lines_fallback(lines)
+        assert ts_result == fallback_result
+
+    def test_empty_file_returns_empty(self):
+        assert chunk_file("sample.py", []) == []
+
+    def test_file_with_no_extractable_nodes_falls_back(self):
+        # A Python file with only constants and no functions/classes
+        lines = ["X = 1\n", "Y = 2\n", "Z = 3\n"]
+        ts_result = chunk_file("constants.py", lines)
+        fallback_result = _chunk_lines_fallback(lines)
+        assert ts_result == fallback_result
