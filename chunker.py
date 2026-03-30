@@ -85,35 +85,30 @@ def _get_parser(grammar_name):
         return None
 
 
-def _has_matching_descendant(node, target_types):
-    """Return True if any direct or indirect child has a type in target_types."""
-    for child in node.children:
-        if child.type in target_types:
-            return True
-        if _has_matching_descendant(child, target_types):
-            return True
-    return False
+def _extract_leaf_nodes(root, target_types):
+    """Iterative O(n) DFS: collect leaf-most matching nodes.
 
-
-def _extract_leaf_nodes(node, target_types):
-    """Depth-first collection of the most specific matching nodes.
-
-    If a node matches AND has matching descendants, skip the node and
-    recurse to collect the more-specific descendants instead.
-    If a node matches AND has NO matching descendants, collect it and stop.
+    Each node is visited exactly once. When a matching node is found its
+    children are still explored — if a descendant also matches, the ancestor
+    is removed in favour of the more-specific child. Uses an explicit stack
+    to avoid Python recursion limits on deep ASTs (e.g. large C files).
     """
-    results = []
-    if node.type in target_types:
-        if _has_matching_descendant(node, target_types):
-            # Prefer the children — recurse past this node
+    pending = {}   # id(node) -> node for matches not yet superseded
+    stack = [(root, None)]  # (node, nearest_matching_ancestor)
+
+    while stack:
+        node, ancestor = stack.pop()
+        if node.type in target_types:
+            if ancestor is not None and id(ancestor) in pending:
+                del pending[id(ancestor)]  # ancestor superseded by this child
+            pending[id(node)] = node
             for child in node.children:
-                results.extend(_extract_leaf_nodes(child, target_types))
+                stack.append((child, node))
         else:
-            results.append(node)
-    else:
-        for child in node.children:
-            results.extend(_extract_leaf_nodes(child, target_types))
-    return results
+            for child in node.children:
+                stack.append((child, ancestor))
+
+    return list(pending.values())
 
 
 def _node_lines(node, lines):
