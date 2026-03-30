@@ -1,26 +1,22 @@
 import hashlib
+import json
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 from collections import Counter
 
 import psutil
 
 import chromadb
+from chunker import chunk_file
 from chromadb.utils.embedding_functions import EmbeddingFunction
-from transformers import AutoTokenizer, AutoModel
-import torch
-
-torch.set_num_threads(os.cpu_count() or 4)
 
 CHROMA_PATH = "./chroma_db"
 COLLECTION_NAME = "project_code"
-CHUNK_TARGET = 60
-CHUNK_OVERLAP = 10
-CHUNK_MAX = 120
 CHROMA_MAX_BATCH = 5000
+
+_CODERANK_QUERY_PREFIX = "Represent this query for searching relevant code: "
 
 # Global cache for the embedding model
 _EMB_MODEL_CACHE = {}
@@ -82,37 +78,6 @@ def git_indexable_files():
             seen.add(f)
             result.append(f)
     return result
-
-
-def chunk_lines(lines):
-    """Yield (start_line_1indexed, end_line_1indexed, text) tuples."""
-    chunks = []
-    i = 0
-    overlap_lines = []
-    while i < len(lines):
-        chunk = overlap_lines + []
-        start = i - len(overlap_lines)
-        # accumulate up to target
-        while i < len(lines) and (i - start) < CHUNK_TARGET:
-            chunk.append(lines[i])
-            i += 1
-        # extend to next blank line, up to hard max
-        while i < len(lines) and (i - start) < CHUNK_MAX:
-            if lines[i].strip() == "":
-                chunk.append(lines[i])
-                i += 1
-                break
-            chunk.append(lines[i])
-            i += 1
-        if not chunk:
-            break
-        # 1-indexed line numbers
-        chunk_start = start + 1
-        chunk_end = start + len(chunk)
-        chunks.append((chunk_start, chunk_end, "".join(chunk)))
-        # overlap: last CHUNK_OVERLAP lines become prefix of next chunk
-        overlap_lines = lines[max(0, i - CHUNK_OVERLAP):i]
-    return chunks
 
 
 def sha256(text):
@@ -212,56 +177,28 @@ def detect_languages(files):
 
 
 def choose_model(lang_counts):
-    """Pick the best embedding model for the detected language mix.
-
-    Current rule: pure infra/config repos use codebert-base; everything
-    else uses graphcodebert-base. Finer-grained selection (e.g. systems
-    languages, web stack) is left for a future iteration.
-    """
-    if not lang_counts:
-        return "microsoft/graphcodebert-base"
-
-    langs = set(lang_counts.keys())
-    infra_langs = {"yaml", "json", "toml", "ini", "terraform", "docker", "kubernetes"}
-
-    if langs.issubset(infra_langs):
-        return "microsoft/codebert-base"
-
-    return "microsoft/graphcodebert-base"
+    """Return the embedding model to use."""
+    return "nomic-ai/CodeRankEmbed"
 
 
-# --- HF embedding function with caching ---
+# --- Embedding function ---
 
 class HFCodeEmbeddingFunction(EmbeddingFunction):
     def __init__(self, model_name, device=None):
         self.model_name = model_name
 
         if model_name in _EMB_MODEL_CACHE:
-            self.tokenizer, self.model, self.device = _EMB_MODEL_CACHE[model_name]
+            self._st_model = _EMB_MODEL_CACHE[model_name]
             return
 
         print(f"Loading model: {model_name}")
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModel.from_pretrained(model_name)
+        from sentence_transformers import SentenceTransformer
+        st_model = SentenceTransformer(model_name, trust_remote_code=True, device=device)
+        st_model.max_seq_length = 512
+        self._st_model = st_model
+        _EMB_MODEL_CACHE[model_name] = st_model
 
-        if device is None:
-            if torch.cuda.is_available():
-                device = "cuda"
-            elif torch.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
-
-        model.to(device)
-        model.eval()
-
-        self.tokenizer = tokenizer
-        self.model = model
-        self.device = device
-
-        _EMB_MODEL_CACHE[model_name] = (tokenizer, model, device)
-
-    def _choose_safe_batch_size(self, max_batch=170, safety_margin_gb=2.0):
+    def _choose_safe_batch_size(self, max_batch=64, safety_margin_gb=2.0):
         try:
             avail = psutil.virtual_memory().available / 1e9
         except Exception:
@@ -276,59 +213,25 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
         return 1
 
     def embed(self, texts, show_progress=False):
-        """Embed all texts in memory-aware batches.
-
-        show_progress: display in-place ETA status (for bulk indexing).
-        """
+        """Embed texts for indexing (no query prefix)."""
         if isinstance(texts, str):
             texts = [texts]
 
         batch_size = self._choose_safe_batch_size()
         print(f"Embedding batch size: {batch_size}")
-        total = len(texts)
-        batches_total = (total + batch_size - 1) // batch_size
-        all_embeddings = []
-        batch_times = []
-
-        if show_progress:
-            _status(f"Embedding chunks... 0/{batches_total} batches | ETA **:**:**")
-
-        for batch_index, i in enumerate(range(0, total, batch_size), start=1):
-            batch = texts[i:i + batch_size]
-            start_time = time.time()
-
-            encoded = self.tokenizer(
-                batch,
-                padding=True,
-                truncation=True,
-                max_length=512,
-                return_tensors="pt"
-            ).to(self.device)
-
-            with torch.no_grad():
-                outputs = self.model(**encoded)
-                emb = outputs.last_hidden_state.mean(dim=1)
-
-            all_embeddings.append(emb.cpu())
-
-            if show_progress:
-                batch_times.append(time.time() - start_time)
-                # Adaptive window: target ~30s of history, clamped to [10, 200] batches.
-                # Fast throughput (e.g. 10 batches/s) → large window to smooth noise.
-                # Slow batches (e.g. 15s each) → small window to stay responsive.
-                avg_so_far = sum(batch_times) / len(batch_times)
-                window = max(10, min(200, int(30 / max(avg_so_far, 0.001))))
-                avg_batch_time = sum(batch_times[-window:]) / min(len(batch_times), window)
-                batches_left = batches_total - batch_index
-                eta_seconds = int(avg_batch_time * batches_left)
-                eta = f"{eta_seconds // 3600:02}:{(eta_seconds % 3600) // 60:02}:{eta_seconds % 60:02}"
-                _status(f"Embedding chunks... {batch_index}/{batches_total} batches | ETA {eta}")
-
-        return torch.cat(all_embeddings, dim=0).numpy()
+        return self._st_model.encode(
+            texts,
+            batch_size=batch_size,
+            show_progress_bar=show_progress,
+            convert_to_numpy=True,
+        )
 
     def __call__(self, texts):
-        """Called by ChromaDB for query-time embedding."""
-        return self.embed(texts)
+        """Called by ChromaDB at query time — adds query prefix."""
+        if isinstance(texts, str):
+            texts = [texts]
+        prefixed = [_CODERANK_QUERY_PREFIX + t for t in texts]
+        return self._st_model.encode(prefixed, convert_to_numpy=True)
 
 
 def index_files():
@@ -344,9 +247,11 @@ def index_files():
 
     emb_fn = HFCodeEmbeddingFunction(model_name)
 
-    # Write model name so search_code.py can load the same embedding function
+    # Write model name and language counts so search_code.py can load the same
+    # embedding function and apply the correct language filter.
     Path(CHROMA_PATH).mkdir(parents=True, exist_ok=True)
     Path(CHROMA_PATH, "model.txt").write_text(model_name)
+    Path(CHROMA_PATH, "langs.json").write_text(json.dumps(dict(lang_counts)))
 
     collection = client.get_or_create_collection(
         name=COLLECTION_NAME,
@@ -388,7 +293,7 @@ def index_files():
         if not lines:
             continue
 
-        chunks = chunk_lines(lines)
+        chunks = chunk_file(filepath, lines)
         for idx, (start, end, text) in enumerate(chunks):
             chunk_id = f"{filepath}::{idx}"
             h = sha256(text)
@@ -400,6 +305,7 @@ def index_files():
                 "start_line": start,
                 "end_line": end,
                 "hash": h,
+                "lang": LANG_MAP.get(Path(filepath).suffix.lower(), "unknown"),
             })
             ids_to_upsert.append(chunk_id)
 
