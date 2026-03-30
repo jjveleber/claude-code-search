@@ -80,6 +80,83 @@ def _get_parser(grammar_name):
         return None
 
 
+def _has_matching_descendant(node, target_types):
+    """Return True if any direct or indirect child has a type in target_types."""
+    for child in node.children:
+        if child.type in target_types:
+            return True
+        if _has_matching_descendant(child, target_types):
+            return True
+    return False
+
+
+def _extract_leaf_nodes(node, target_types):
+    """Depth-first collection of the most specific matching nodes.
+
+    If a node matches AND has matching descendants, skip the node and
+    recurse to collect the more-specific descendants instead.
+    If a node matches AND has NO matching descendants, collect it and stop.
+    """
+    results = []
+    if node.type in target_types:
+        if _has_matching_descendant(node, target_types):
+            # Prefer the children — recurse past this node
+            for child in node.children:
+                results.extend(_extract_leaf_nodes(child, target_types))
+        else:
+            results.append(node)
+    else:
+        for child in node.children:
+            results.extend(_extract_leaf_nodes(child, target_types))
+    return results
+
+
+def _node_lines(node, lines):
+    """Return the source lines for a tree-sitter node (0-indexed slice of lines)."""
+    start = node.start_point[0]   # 0-indexed
+    end = node.end_point[0]       # 0-indexed, inclusive
+    return lines[start:end + 1], start, end
+
+
+def _build_chunks(nodes, lines):
+    """Convert extracted nodes + gaps into chunk tuples."""
+    chunks = []
+    covered_up_to = 0  # 0-indexed, exclusive upper bound of covered lines
+
+    for node in nodes:
+        node_start_0 = node.start_point[0]  # 0-indexed
+
+        # Cover gap before this node with line-based fallback
+        if node_start_0 > covered_up_to:
+            gap = lines[covered_up_to:node_start_0]
+            for s, e, text in _chunk_lines_fallback(gap):
+                chunks.append((covered_up_to + s, covered_up_to + e, text))
+
+        # Emit chunk(s) for this node
+        node_end_0 = node.end_point[0]  # 0-indexed, inclusive
+        node_src, _, _ = _node_lines(node, lines)
+        node_line_count = node_end_0 - node_start_0 + 1
+
+        if node_line_count > CHUNK_MAX:
+            signature = "".join(lines[node_start_0:min(node_start_0 + 3, node_end_0 + 1)])
+            for s, e, text in _chunk_lines_fallback(node_src):
+                abs_start = node_start_0 + s   # 1-indexed in file
+                abs_end = node_start_0 + e     # 1-indexed in file
+                chunks.append((abs_start, abs_end, signature + text))
+        else:
+            chunks.append((node_start_0 + 1, node_end_0 + 1, "".join(node_src)))
+
+        covered_up_to = node_end_0 + 1  # next uncovered line (0-indexed)
+
+    # Cover trailing content after last node
+    if covered_up_to < len(lines):
+        tail = lines[covered_up_to:]
+        for s, e, text in _chunk_lines_fallback(tail):
+            chunks.append((covered_up_to + s, covered_up_to + e, text))
+
+    return chunks
+
+
 def chunk_file(filepath, lines):
     """Chunk a file using tree-sitter semantic boundaries where possible.
 
@@ -90,7 +167,34 @@ def chunk_file(filepath, lines):
 
     Returns list of (start_line_1indexed, end_line_1indexed, text) tuples.
     """
-    raise NotImplementedError
+    if not lines:
+        return []
+
+    ext = Path(filepath).suffix.lower()
+    grammar_name = _EXT_GRAMMAR.get(ext)
+    target_types = _NODE_TYPES.get(grammar_name) if grammar_name else None
+
+    if grammar_name is None or target_types is None:
+        return _chunk_lines_fallback(lines)
+
+    parser = _get_parser(grammar_name)
+    if parser is None:
+        return _chunk_lines_fallback(lines)
+
+    try:
+        source = "".join(lines).encode("utf-8")
+        tree = parser.parse(source)
+    except Exception:
+        return _chunk_lines_fallback(lines)
+
+    target_set = set(target_types)
+    nodes = _extract_leaf_nodes(tree.root_node, target_set)
+
+    if not nodes:
+        return _chunk_lines_fallback(lines)
+
+    nodes.sort(key=lambda n: n.start_point[0])
+    return _build_chunks(nodes, lines)
 
 
 def _chunk_lines_fallback(lines):
