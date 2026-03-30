@@ -4,7 +4,12 @@ Public API:
     chunk_file(filepath, lines) -> list[tuple[int, int, str]]
         Returns (start_line_1indexed, end_line_1indexed, text) tuples.
 """
+import warnings
 from pathlib import Path
+
+# tree_sitter_languages 1.10.x uses Language(path, name) which is deprecated
+# in tree-sitter 0.21.x. Suppress until tree_sitter_languages is updated.
+warnings.filterwarnings("ignore", message="Language\\(path, name\\) is deprecated", category=FutureWarning)
 
 # Chunking constants (moved from index_project.py)
 CHUNK_TARGET = 60
