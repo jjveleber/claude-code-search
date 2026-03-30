@@ -7,11 +7,12 @@ from datetime import datetime
 
 from eval.report import capture_git_metadata, write_report
 
-SEARCH_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "search_code.py")
+_EVAL_ROOT = os.path.dirname(os.path.dirname(__file__))
+SEARCH_SCRIPT = os.path.join(_EVAL_ROOT, "search_code.py")
 BENCHMARK_DIR = os.path.join(os.path.dirname(__file__), "benchmarks")
-PYTHON = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".venv", "bin", "python3")
+PYTHON = os.path.join(_EVAL_ROOT, ".venv", "bin", "python3")
 
-_MATCH_RE = re.compile(r"^MATCH \d+: (.+?) \(lines \d+-\d+\)")
+_MATCH_RE = re.compile(r"^MATCH \d+: (.+?)(?:\s+\[\w+\])? \(lines \d+-\d+\)")
 
 
 def parse_search_output(output):
@@ -70,7 +71,7 @@ def load_benchmark(benchmark_file):
         return json.load(f)
 
 
-def run_unit_eval(benchmark_file, top=5, config=None):
+def run_unit_eval(benchmark_file, top=5, config=None, repo_path=None):
     """Run unit eval against all benchmark entries. Returns a report dict."""
     entries = load_benchmark(benchmark_file)
     if config is None:
@@ -79,18 +80,27 @@ def run_unit_eval(benchmark_file, top=5, config=None):
     full_config = {"chunk_size": 60, "overlap": 10, "top": top}
     full_config.update(config)
 
+    if repo_path:
+        python = os.path.join(repo_path, ".venv", "bin", "python3")
+        search_script = os.path.join(repo_path, "search_code.py")
+        cwd = repo_path
+    else:
+        python = PYTHON
+        search_script = SEARCH_SCRIPT
+        cwd = None
+
     task_results = []
     for entry in entries:
-        expected = entry.get("expected_files", [])
+        expected = entry.get("expected_search_targets") or entry.get("expected_files", [])
         acceptable = entry.get("acceptable_files", [])
 
         if not expected:
-            print(f"  [skip] {entry['id']} — no expected_files yet", file=sys.stderr)
+            print(f"  [skip] {entry['id']} — no expected_files or expected_search_targets", file=sys.stderr)
             continue
 
         result = subprocess.run(
-            [PYTHON, SEARCH_SCRIPT, entry["prompt"], "--top", str(top)],
-            capture_output=True, text=True
+            [python, search_script, entry["prompt"], "--top", str(top)],
+            capture_output=True, text=True, cwd=cwd
         )
 
         if result.returncode != 0:

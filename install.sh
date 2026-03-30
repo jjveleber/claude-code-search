@@ -63,7 +63,8 @@ fi
   "transformers==4.46.3" \
   "sentencepiece==0.2.0" \
   "psutil>=5.9" \
-  "torch==2.11.0"
+  "torch==2.11.0" \
+  "rank_bm25>=0.2.2"
 
 # Restore venv directory mtime to signal reuse (not recreation)
 if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then

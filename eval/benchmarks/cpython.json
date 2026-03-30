@@ -2,158 +2,128 @@
   {
     "id": "cpython-001",
     "prompt": "Find where the GIL (Global Interpreter Lock) is acquired and released during thread switching",
-    "expected_files": [
-      "Python/ceval_gil.c"
-    ],
-    "acceptable_files": [
-      "Python/pystate.c"
-    ],
+    "expected_files": [],
+    "expected_search_targets": ["Python/ceval_gil.c"],
+    "acceptable_files": ["Python/pystate.c"],
     "notes": "Category: single-file impl. Tests navigation to core threading/concurrency machinery"
   },
   {
     "id": "cpython-002",
     "prompt": "Find the implementation of list.append and how it handles dynamic array resizing",
-    "expected_files": [
-      "Objects/listobject.c"
-    ],
+    "expected_files": [],
+    "expected_search_targets": ["Objects/listobject.c"],
     "acceptable_files": [],
     "notes": "Category: single-file impl. Tests navigation to a well-known built-in method"
   },
   {
     "id": "cpython-003",
     "prompt": "Find where Python dict lookup is implemented and how hash collision resolution works",
-    "expected_files": [
-      "Objects/dictobject.c"
-    ],
+    "expected_files": [],
+    "expected_search_targets": ["Objects/dictobject.c"],
     "acceptable_files": [],
     "notes": "Category: single-file impl. Tests navigation to dict internals"
   },
   {
     "id": "cpython-004",
     "prompt": "Find where the bytecode compiler generates LOAD_FAST and STORE_FAST instructions for local variables",
-    "expected_files": [
-      "Python/codegen.c"
-    ],
-    "acceptable_files": [
-      "Python/compile.c",
-      "Python/flowgraph.c"
-    ],
+    "expected_files": [],
+    "expected_search_targets": ["Python/codegen.c", "Python/flowgraph.c"],
+    "acceptable_files": ["Python/compile.c"],
     "notes": "Category: single-file impl. Tests navigation to the compiler/codegen layer"
   },
   {
     "id": "cpython-005",
     "prompt": "Find the CPython garbage collector's cycle detection algorithm",
-    "expected_files": [
-      "Python/gc.c"
-    ],
+    "expected_files": [],
+    "expected_search_targets": ["Python/gc.c"],
     "acceptable_files": [],
     "notes": "Category: single-file impl. Tests navigation to the cyclic GC"
   },
   {
     "id": "cpython-006",
     "prompt": "Trace how Python resolves attribute lookup through the MRO (Method Resolution Order) for new-style classes",
-    "expected_files": [
-      "Objects/typeobject.c"
-    ],
-    "acceptable_files": [
-      "Objects/object.c"
-    ],
+    "expected_files": [],
+    "expected_search_targets": ["Objects/typeobject.c", "Objects/object.c"],
+    "acceptable_files": [],
     "notes": "Category: algorithm within subsystem. MRO traversal is a multi-step algorithm inside typeobject.c"
   },
   {
     "id": "cpython-007",
     "prompt": "Find the entry point where CPython parses command-line arguments and initializes sys.argv",
-    "expected_files": [
-      "Modules/main.c"
-    ],
-    "acceptable_files": [
-      "Python/initconfig.c"
-    ],
+    "expected_files": [],
+    "expected_search_targets": ["Python/initconfig.c", "Modules/main.c"],
+    "acceptable_files": ["Python/pylifecycle.c", "Python/sysmodule.c"],
     "notes": "Category: entry point discovery. Tests ability to find interpreter startup logic"
   },
   {
     "id": "cpython-008",
     "prompt": "Trace how a SyntaxError during compilation gets from the parser to the point where it is raised as a Python exception",
-    "expected_files": [
-      "Parser/parser.c",
-      "Python/errors.c"
-    ],
-    "acceptable_files": [
-      "Python/ast.c",
-      "Python/symtable.c",
-      "Parser/tokenizer.c"
-    ],
+    "expected_files": [],
+    "expected_search_targets": ["Parser/pegen.c", "Python/errors.c", "Python/pythonrun.c"],
+    "acceptable_files": ["Python/ast.c", "Python/symtable.c", "Parser/tokenizer.c"],
     "notes": "Category: cross-file concept. Requires tracing error propagation across parser and runtime layers"
   },
   {
     "id": "cpython-009",
     "prompt": "Find where Python's iterator protocol (__iter__ and __next__) is dispatched in the abstract object layer",
-    "expected_files": [
-      "Objects/abstract.c"
-    ],
-    "acceptable_files": [
-      "Objects/typeobject.c"
-    ],
+    "expected_files": [],
+    "expected_search_targets": ["Python/ceval.c"],
+    "acceptable_files": ["Objects/abstract.c", "Objects/typeobject.c"],
     "notes": "Category: protocol/interface impl. Tests navigation to the abstract C API for iteration"
   },
   {
     "id": "cpython-edit-001",
     "prompt": "Add a comment to PyObject_Init in the object implementation explaining why the initial reference count is set to 1",
-    "expected_files": [
-      "/Users/jjveleber/projects/experiments/cpython/Objects/object.c"
-    ],
+    "expected_files": ["Objects/object.c"],
+    "expected_search_targets": [],
     "acceptable_files": [],
     "notes": "Category: edit / 'add'. Requires finding PyObject_Init in Objects/object.c and inserting an explanatory comment"
   },
   {
     "id": "cpython-edit-002",
     "prompt": "Change the error message raised when a non-callable object is called to include the word 'not callable' if it does not already",
-    "expected_files": [],
-    "acceptable_files": [],
+    "expected_files": ["Objects/typeobject.c"],
+    "expected_search_targets": [],
+    "acceptable_files": ["Objects/abstract.c", "Python/bytecodes.c", "Objects/call.c"],
     "notes": "Category: edit / 'change'. Requires finding the non-callable TypeError in Objects/typeobject.c or Objects/abstract.c"
   },
   {
     "id": "cpython-edit-003",
     "prompt": "Fix the collect function in the cyclic garbage collector by adding a comment at the top of the function body stating which generation it starts collecting from",
-    "expected_files": [
-      "/Users/jjveleber/projects/experiments/cpython/Modules/gcmodule.c"
-    ],
+    "expected_files": ["Python/gc.c"],
+    "expected_search_targets": [],
     "acceptable_files": [],
     "notes": "Category: edit / 'fix'. Requires locating Python/gc.c collect entry point and inserting documentation"
   },
   {
     "id": "cpython-edit-004",
     "prompt": "Update the comment above the GIL drop logic in the eval loop to note that it yields to other threads at safe points",
-    "expected_files": [
-      "/Users/jjveleber/projects/experiments/cpython/Python/ceval_gil.c"
-    ],
+    "expected_files": ["Python/ceval_gil.c"],
+    "expected_search_targets": [],
     "acceptable_files": [],
     "notes": "Category: edit / 'update'. Requires finding GIL drop in Python/ceval.c or Python/ceval_gil.c"
   },
   {
     "id": "cpython-edit-005",
     "prompt": "Remove the most prominent TODO or FIXME comment from the symtable analysis code",
-    "expected_files": [
-      "/Users/jjveleber/projects/experiments/cpython/Python/symtable.c"
-    ],
+    "expected_files": ["Python/symtable.c"],
+    "expected_search_targets": [],
     "acceptable_files": [],
     "notes": "Category: edit / 'remove'. Requires finding Python/symtable.c and locating a TODO/FIXME comment to delete"
   },
   {
     "id": "cpython-edit-006",
     "prompt": "Rename the local variable used to hold the lookup result in _PyDict_GetItem_KnownHash to make its purpose clearer \u2014 change it from a single-letter name to a descriptive one",
-    "expected_files": [
-      "/Users/jjveleber/projects/experiments/cpython/Objects/dictobject.c"
-    ],
+    "expected_files": ["Objects/dictobject.c"],
+    "expected_search_targets": [],
     "acceptable_files": [],
     "notes": "Category: edit / 'rename'. Requires navigating to Objects/dictobject.c and doing a local variable rename"
   },
   {
     "id": "cpython-edit-007",
     "prompt": "Refactor the overallocation calculation in list_resize so the growth formula is assigned to a named variable before being used, instead of being computed inline",
-    "expected_files": [
-      "/Users/jjveleber/projects/experiments/cpython/Objects/listobject.c"
-    ],
+    "expected_files": ["Objects/listobject.c"],
+    "expected_search_targets": [],
     "acceptable_files": [],
     "notes": "Category: edit / 'refactor'. Requires finding Objects/listobject.c list_resize and extracting an expression into a named variable"
   }

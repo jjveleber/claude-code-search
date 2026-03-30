@@ -1,5 +1,7 @@
 import hashlib
+import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -17,6 +19,7 @@ torch.set_num_threads(os.cpu_count() or 4)
 
 CHROMA_PATH = "./chroma_db"
 COLLECTION_NAME = "project_code"
+BM25_CORPUS_PATH = "./chroma_db/bm25_corpus.json"
 CHUNK_TARGET = 60
 CHUNK_OVERLAP = 10
 CHUNK_MAX = 120
@@ -24,6 +27,14 @@ CHROMA_MAX_BATCH = 5000
 
 # Global cache for the embedding model
 _EMB_MODEL_CACHE = {}
+
+
+def _tokenize_for_bm25(text):
+    """Code-aware tokenization for BM25: split camelCase/snake_case, lowercase, drop short tokens."""
+    text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+    text = re.sub(r'[_\-./\\:;,|#@!?(){}\[\]<>"\'+*&^%$=~`]', ' ', text)
+    tokens = text.lower().split()
+    return [t for t in tokens if len(t) > 1]
 
 
 def _status(msg):
@@ -214,19 +225,55 @@ def detect_languages(files):
 def choose_model(lang_counts):
     """Pick the best embedding model for the detected language mix.
 
-    Current rule: pure infra/config repos use codebert-base; everything
-    else uses graphcodebert-base. Finer-grained selection (e.g. systems
-    languages, web stack) is left for a future iteration.
+    Language groups and rationale:
+    - Systems (C/C++/Rust/Go/etc.)  → unixcoder-base: stronger retrieval on
+      low-level languages with opaque identifiers; trained on C/C++ unlike
+      graphcodebert.
+    - JVM (Java/Kotlin/Scala)        → unixcoder-base: best retrieval scores
+      on Java-family code across benchmarks.
+    - Web (JS/TS/HTML/CSS)           → graphcodebert-base: heavily trained on
+      JS/TS with data-flow graphs; strong on dynamic web code.
+    - Scripting (Python/Ruby/PHP)    → graphcodebert-base: Python/Ruby/PHP are
+      graphcodebert's core training languages.
+    - Config/infra only              → codebert-base: simpler model is
+      sufficient for structured config files with little semantic content.
+    - Mixed or unknown               → graphcodebert-base as default.
+
+    When a repo mixes systems + other languages, systems wins because opaque
+    C/Rust identifiers are the harder retrieval problem.
     """
     if not lang_counts:
         return "microsoft/graphcodebert-base"
 
     langs = set(lang_counts.keys())
-    infra_langs = {"yaml", "json", "toml", "ini", "terraform", "docker", "kubernetes"}
 
-    if langs.issubset(infra_langs):
+    systems_langs = {"c", "cpp", "rust", "go", "zig", "assembly", "fortran",
+                     "csharp", "swift", "objectivec"}
+    jvm_langs     = {"java", "kotlin", "scala", "groovy", "clojure"}
+    web_langs     = {"javascript", "typescript", "html", "css", "vue", "svelte"}
+    scripting_langs = {"python", "ruby", "php", "perl", "lua", "bash", "shell"}
+    infra_langs   = {"yaml", "json", "toml", "ini", "terraform", "docker",
+                     "kubernetes", "hcl"}
+
+    has_systems  = bool(langs & systems_langs)
+    has_jvm      = bool(langs & jvm_langs)
+    has_web      = bool(langs & web_langs)
+    has_scripting = bool(langs & scripting_langs)
+    has_code     = has_systems or has_jvm or has_web or has_scripting
+
+    if not has_code:
+        # Pure config/infra repo
         return "microsoft/codebert-base"
 
+    if has_systems:
+        # Systems languages present — use unixcoder regardless of mix
+        return "microsoft/unixcoder-base"
+
+    if has_jvm and not has_web and not has_scripting:
+        # Pure JVM repo
+        return "microsoft/unixcoder-base"
+
+    # Web, scripting, or mixed web+JVM
     return "microsoft/graphcodebert-base"
 
 
@@ -333,7 +380,7 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
         return self.embed(texts)
 
 
-def index_files():
+def index_files(use_bm25=False):
     client = chromadb.PersistentClient(path=CHROMA_PATH)
 
     tracked_files = git_indexable_files()
@@ -356,12 +403,20 @@ def index_files():
     )
 
     _status("Loading index...")
-    existing = collection.get(include=["metadatas"])
-    print()  # end loading line
-
     existing_hashes = {}
-    for chunk_id, meta in zip(existing.get("ids", []), existing.get("metadatas", [])):
-        existing_hashes[chunk_id] = meta.get("hash", "")
+    _PAGE = 5000
+    _offset = 0
+    while True:
+        batch = collection.get(include=["metadatas"], limit=_PAGE, offset=_offset)
+        batch_ids = batch.get("ids", [])
+        if not batch_ids:
+            break
+        for chunk_id, meta in zip(batch_ids, batch.get("metadatas", [])):
+            existing_hashes[chunk_id] = meta.get("hash", "")
+        if len(batch_ids) < _PAGE:
+            break
+        _offset += _PAGE
+    print()  # end loading line
 
     tracked_set = set(tracked_files)
 
@@ -419,16 +474,71 @@ def index_files():
     _batch_upsert(collection, docs_to_upsert, metas_to_upsert, ids_to_upsert, embeddings)
     _batch_delete(collection, to_delete)
 
-    import json as _json
-    _json_path = Path(CHROMA_PATH) / "langs.json"
-    _json_path.write_text(_json.dumps(dict(lang_counts)))
+    Path(CHROMA_PATH, "langs.json").write_text(json.dumps(dict(lang_counts)))
+
+    if use_bm25:
+        # Update BM25 corpus (incremental: load existing, remove deleted, add/update upserted)
+        bm25_corpus_path = Path(BM25_CORPUS_PATH)
+        try:
+            bm25_corpus = json.loads(bm25_corpus_path.read_text()) if bm25_corpus_path.exists() else {}
+        except Exception:
+            bm25_corpus = {}
+        for cid in to_delete:
+            bm25_corpus.pop(cid, None)
+        for cid, text in zip(ids_to_upsert, docs_to_upsert):
+            bm25_corpus[cid] = text
+
+        # Bootstrap: if corpus is still empty (first BM25 run on existing index), fetch all docs
+        if not bm25_corpus and collection.count() > 0:
+            _status("Bootstrapping BM25 corpus from index...")
+            _page, _off = 5000, 0
+            while True:
+                batch = collection.get(include=["documents"], limit=_page, offset=_off)
+                batch_ids = batch.get("ids", [])
+                if not batch_ids:
+                    break
+                for cid, doc in zip(batch_ids, batch.get("documents", [])):
+                    bm25_corpus[cid] = doc
+                if len(batch_ids) < _page:
+                    break
+                _off += _page
+            print()
+
+        bm25_corpus_path.write_text(json.dumps(bm25_corpus))
+        bm25_msg = f" | BM25 corpus: {len(bm25_corpus):,} chunks"
+    else:
+        bm25_msg = " | BM25: disabled"
 
     print(
         f"Files scanned: {files_scanned} | "
         f"Chunks upserted: {len(ids_to_upsert)} | "
         f"Chunks deleted: {len(to_delete)}"
+        f"{bm25_msg}"
     )
 
 
+def _remove_bm25_corpus():
+    p = Path(BM25_CORPUS_PATH)
+    if p.exists():
+        p.unlink()
+        print("BM25 corpus removed.")
+    else:
+        print("BM25 corpus not found (already disabled).")
+
+
 if __name__ == "__main__":
-    index_files()
+    import argparse
+    parser = argparse.ArgumentParser(description="Build or update the code search index.")
+    parser.add_argument(
+        "--bm25", action="store_true", dest="bm25",
+        help="Build/update BM25 corpus to enable hybrid search"
+    )
+    parser.add_argument(
+        "--disable-bm25", action="store_true", dest="disable_bm25",
+        help="Remove existing BM25 corpus and exit (permanently disables hybrid search until re-enabled)"
+    )
+    args = parser.parse_args()
+    if args.disable_bm25:
+        _remove_bm25_corpus()
+    else:
+        index_files(use_bm25=args.bm25)

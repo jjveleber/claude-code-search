@@ -17,7 +17,7 @@ def cmd_unit(args):
     from eval.report import write_report
     benchmark = args.benchmark or DEFAULT_BENCHMARK
     print(f"Running unit eval against {benchmark} (--top {args.top})")
-    report = run_unit_eval(benchmark, top=args.top)
+    report = run_unit_eval(benchmark, top=args.top, repo_path=args.repo_path)
     path = write_report(report, results_dir=RESULTS_DIR)
     s = report["summary"]
     print(f"\nResults saved to {path}")
@@ -252,6 +252,7 @@ def main():
     p_unit = sub.add_parser("unit", help="Run unit eval (no Claude needed)")
     p_unit.add_argument("--top", type=int, default=5, help="Top-N results to score (default: 5)")
     p_unit.add_argument("--benchmark", help="Path to benchmark JSON (default: benchmarks/llvm.json)")
+    p_unit.add_argument("--repo-path", help="Path to repo with its own index and venv (e.g. /path/to/cpython)")
     p_unit.set_defaults(func=cmd_unit)
 
     # results
