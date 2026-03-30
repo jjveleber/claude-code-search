@@ -8,8 +8,8 @@ from index_project import HFCodeEmbeddingFunction
 
 CHROMA_PATH = "./chroma_db"
 COLLECTION_NAME = "project_code"
-_DEFAULT_MODEL = "microsoft/graphcodebert-base"
-_DOC_LANGS = frozenset({"restructuredtext", "markdown"})
+_DEFAULT_MODEL = "nomic-ai/CodeRankEmbed"
+_DOC_LANGS = frozenset({"restructuredtext", "markdown"})  # legacy fallback for pre-migration indices
 
 
 def _tokenize_for_bm25(text):
@@ -51,7 +51,7 @@ def _load_embedding_fn():
 
 
 def _load_source_langs():
-    """Return non-doc languages present in the index, or empty set if unavailable."""
+    """Legacy fallback: return non-doc languages for indices without file_type metadata."""
     langs_file = Path(CHROMA_PATH) / "langs.json"
     if not langs_file.exists():
         return set()
@@ -62,26 +62,32 @@ def _load_source_langs():
         return set()
 
 
+def _has_file_type_metadata(collection):
+    """Return True if the index has file_type metadata (requires migration or fresh index)."""
+    sample = collection.get(limit=1, include=["metadatas"])
+    return bool(sample["ids"]) and "file_type" in (sample["metadatas"][0] or {})
+
+
 def merge_chunks(items):
     """Group results by file and merge overlapping line ranges.
 
-    items: list of (path, start_line, end_line, text) tuples
+    items: list of (path, start_line, end_line, text, file_type) tuples
     """
     items = sorted(items, key=lambda x: (x[0], x[1]))
 
     merged = []
-    for path, start, end, text in items:
+    for path, start, end, text, file_type in items:
         if merged and merged[-1][0] == path and start <= merged[-1][2] + 1:
             # overlapping or adjacent — merge, trimming duplicated overlap lines
-            prev_path, prev_start, prev_end, prev_text = merged[-1]
+            prev_path, prev_start, prev_end, prev_text, prev_ft = merged[-1]
             overlap_line_count = max(0, prev_end - start + 1)
             text_lines = text.splitlines(keepends=True)
             if overlap_line_count > len(text_lines):
                 overlap_line_count = 0
             new_text = prev_text + "".join(text_lines[overlap_line_count:])
-            merged[-1] = [prev_path, prev_start, max(prev_end, end), new_text]
+            merged[-1] = [prev_path, prev_start, max(prev_end, end), new_text, prev_ft]
         else:
-            merged.append([path, start, end, text])
+            merged.append([path, start, end, text, file_type])
 
     return merged
 
@@ -105,8 +111,16 @@ def search(query, n_results=5, all_files=False, use_bm25=True):
         print("No results found.")
         sys.exit(2)
 
-    source_langs = set() if all_files else _load_source_langs()
-    where = {"lang": {"$in": list(source_langs)}} if source_langs else None
+    where = None
+    use_file_type = False
+    source_langs: set = set()
+    if not all_files:
+        if _has_file_type_metadata(collection):
+            where = {"file_type": {"$in": ["prod", "test"]}}
+            use_file_type = True
+        else:
+            source_langs = _load_source_langs()
+            where = {"lang": {"$in": list(source_langs)}} if source_langs else None
 
     # Fetch more semantic candidates for RRF
     n_candidates = min(n_results * 4, count)
@@ -123,7 +137,7 @@ def search(query, n_results=5, all_files=False, use_bm25=True):
     meta_cache = {}
     for i, cid in enumerate(semantic_ids):
         m = results["metadatas"][0][i]
-        meta_cache[cid] = (m["path"], m["start_line"], m["end_line"], results["documents"][0][i])
+        meta_cache[cid] = (m["path"], m["start_line"], m["end_line"], results["documents"][0][i], m.get("file_type", ""))
 
     # BM25 search + RRF merge
     bm25, id_list = _load_bm25() if use_bm25 else (None, [])
@@ -142,9 +156,12 @@ def search(query, n_results=5, all_files=False, use_bm25=True):
         extra = collection.get(ids=missing, include=["metadatas", "documents"])
         for i, cid in enumerate(extra["ids"]):
             m = extra["metadatas"][i]
+            ft = m.get("file_type", "")
+            if use_file_type and ft not in ("prod", "test"):
+                continue
             if source_langs and m.get("lang") not in source_langs:
                 continue
-            meta_cache[cid] = (m["path"], m["start_line"], m["end_line"], extra["documents"][i])
+            meta_cache[cid] = (m["path"], m["start_line"], m["end_line"], extra["documents"][i], ft)
 
     # Build ordered items list up to n_results
     items = []
@@ -161,8 +178,9 @@ def search(query, n_results=5, all_files=False, use_bm25=True):
         print("No results found.")
         sys.exit(2)
 
-    for i, (path, start, end, text) in enumerate(merged, 1):
-        print(f"MATCH {i}: {path} (lines {start}-{end})")
+    for i, (path, start, end, text, file_type) in enumerate(merged, 1):
+        label = f" [{file_type}]" if file_type else ""
+        print(f"MATCH {i}: {path}{label} (lines {start}-{end})")
         print("-" * 40)
         print(text)
         if not text.endswith("\n"):
@@ -182,7 +200,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--all", action="store_true", dest="all_files",
-        help="Search all files including docs (default: source files only)",
+        help="Search all files including docs and generated (default: prod and test only)",
     )
     parser.add_argument(
         "--no-bm25", action="store_true", dest="no_bm25",

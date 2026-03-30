@@ -37,6 +37,14 @@ The watcher (`watch_index.py`) runs in the background during Claude sessions and
 
 The indexer is incremental — only changed chunks are re-embedded, so re-runs are fast.
 
+**BM25 hybrid search** is opt-in. Pass `--bm25` to build a keyword corpus alongside the vector index:
+
+```bash
+.venv/bin/python3 index_project.py --bm25
+```
+
+At query time, `search_code.py` automatically uses BM25 if the corpus exists (Reciprocal Rank Fusion merges both result sets). To remove the BM25 corpus and revert to semantic-only: `index_project.py --disable-bm25`.
+
 ## Search
 
 ```bash
@@ -44,6 +52,12 @@ The indexer is incremental — only changed chunks are re-embedded, so re-runs a
 ```
 
 Returns the top 5 most relevant code chunks with file paths and line numbers.
+
+| Flag | Description |
+|---|---|
+| `--top N` | Return top N results (default: 5) |
+| `--no-bm25` | Force semantic-only search, even if a BM25 corpus exists |
+| `--all` | Include documentation files (Markdown, reStructuredText) in results |
 
 ## What Gets Installed
 
@@ -91,6 +105,15 @@ Then:
 
 1. `git ls-files` enumerates all tracked files (respects `.gitignore` automatically)
 2. Each file is split into ~60-line chunks with 10-line overlap, breaking at blank lines to keep functions intact
-3. Chunks are embedded using ChromaDB's built-in local ONNX model (all-MiniLM-L6-v2) — no API key required, runs fully offline
+3. Chunks are embedded using a model chosen by language: UniXcoder for systems languages (C/C++/Rust/Go/…), GraphCodeBERT for web/scripting, CodeBERT for config-only repos — no API key required, runs fully offline. Uses Apple MPS acceleration when available.
 4. On re-index, only chunks whose content has changed (SHA-256 hash comparison) are re-embedded
-5. `search_code.py` queries the vector DB and merges overlapping result chunks before printing
+5. `search_code.py` queries the vector DB (and BM25 corpus if present) and merges overlapping result chunks before printing
+
+## Eval
+
+An evaluation framework in `eval/` measures search quality at two levels:
+
+- **Unit eval** — scores search results against known expected files, no Claude needed
+- **Integration eval** — compares Claude Code sessions with and without search enabled, measuring navigation behavior
+
+See [`eval/README.md`](eval/README.md) for usage details.

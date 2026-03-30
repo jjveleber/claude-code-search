@@ -1,0 +1,6 @@
+key: value
+nested:
+  inner: data
+list:
+  - item1
+  - item2
