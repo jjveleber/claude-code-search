@@ -126,11 +126,12 @@ def _build_chunks(nodes, lines):
     for node in nodes:
         node_start_0 = node.start_point[0]  # 0-indexed
 
-        # Cover gap before this node with line-based fallback
+        # Cover gap before this node with line-based fallback (skip blank-only gaps)
         if node_start_0 > covered_up_to:
             gap = lines[covered_up_to:node_start_0]
             for s, e, text in _chunk_lines_fallback(gap):
-                chunks.append((covered_up_to + s, covered_up_to + e, text))
+                if text.strip():
+                    chunks.append((covered_up_to + s, covered_up_to + e, text))
 
         # Emit chunk(s) for this node
         node_end_0 = node.end_point[0]  # 0-indexed, inclusive
@@ -148,11 +149,12 @@ def _build_chunks(nodes, lines):
 
         covered_up_to = node_end_0 + 1  # next uncovered line (0-indexed)
 
-    # Cover trailing content after last node
+    # Cover trailing content after last node (skip blank-only tail)
     if covered_up_to < len(lines):
         tail = lines[covered_up_to:]
         for s, e, text in _chunk_lines_fallback(tail):
-            chunks.append((covered_up_to + s, covered_up_to + e, text))
+            if text.strip():
+                chunks.append((covered_up_to + s, covered_up_to + e, text))
 
     return chunks
 
