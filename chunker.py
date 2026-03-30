@@ -77,4 +77,32 @@ def chunk_file(filepath, lines):
 
 
 def _chunk_lines_fallback(lines):
-    raise NotImplementedError
+    """Fixed sliding window chunking (language-agnostic fallback).
+
+    Returns list of (start_line_1indexed, end_line_1indexed, text) tuples.
+    """
+    chunks = []
+    i = 0
+    overlap_lines = []
+    while i < len(lines):
+        chunk = overlap_lines + []
+        start = i - len(overlap_lines)
+        # accumulate up to target
+        while i < len(lines) and (i - start) < CHUNK_TARGET:
+            chunk.append(lines[i])
+            i += 1
+        # extend to next blank line, up to hard max
+        while i < len(lines) and (i - start) < CHUNK_MAX:
+            if lines[i].strip() == "":
+                chunk.append(lines[i])
+                i += 1
+                break
+            chunk.append(lines[i])
+            i += 1
+        if not chunk:
+            break
+        chunk_start = start + 1  # 1-indexed
+        chunk_end = start + len(chunk)
+        chunks.append((chunk_start, chunk_end, "".join(chunk)))
+        overlap_lines = lines[max(0, i - CHUNK_OVERLAP):i]
+    return chunks
