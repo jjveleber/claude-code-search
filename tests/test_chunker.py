@@ -164,3 +164,32 @@ class TestFallback:
         ts_result = chunk_file("constants.py", lines)
         fallback_result = _chunk_lines_fallback(lines)
         assert ts_result == fallback_result
+
+
+class TestSubChunking:
+    def test_large_function_produces_multiple_chunks(self):
+        lines = _read("sample_large_func.py")
+        chunks = chunk_file("sample_large_func.py", lines)
+        assert len(chunks) > 1, (
+            f"Expected multiple chunks for large function, got {len(chunks)}. "
+            f"File has {len(lines)} lines, CHUNK_MAX={__import__('chunker').CHUNK_MAX}"
+        )
+
+    def test_all_sub_chunks_contain_function_signature(self):
+        lines = _read("sample_large_func.py")
+        chunks = chunk_file("sample_large_func.py", lines)
+        for start, end, text in chunks:
+            assert "def large_function" in text, (
+                f"Sub-chunk lines {start}-{end} is missing signature prefix.\n"
+                f"Content: {text[:100]!r}"
+            )
+
+    def test_sub_chunk_line_numbers_are_sequential(self):
+        lines = _read("sample_large_func.py")
+        chunks = chunk_file("sample_large_func.py", lines)
+        for i in range(len(chunks) - 1):
+            _, end_i, _ = chunks[i]
+            start_next, _, _ = chunks[i + 1]
+            assert start_next <= end_i + 1, (
+                f"Gap between chunk {i} (ends {end_i}) and chunk {i+1} (starts {start_next})"
+            )
