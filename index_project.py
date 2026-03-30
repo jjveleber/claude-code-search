@@ -167,6 +167,74 @@ LANG_MAP = {
 }
 
 
+# --- File type classification ---
+
+_TEST_DIRS = frozenset({
+    "test", "tests", "__tests__", "spec", "specs",
+    "e2e", "integration", "unit", "functional",
+    "testdata", "test_data", "fixtures",
+})
+_DOC_DIRS = frozenset({
+    "doc", "docs", "documentation", "Doc", "pydoc_data",
+    "man", "_site", "site",
+})
+_GEN_DIRS = frozenset({
+    "clinic", "generated", "__generated__", "gen", "auto-generated",
+})
+_DOC_EXTS = frozenset({".md", ".rst", ".adoc", ".txt"})
+
+
+def classify_file(filepath):
+    """Classify a file as prod/test/doc/generated based on path heuristics.
+
+    Order: doc → generated → test → prod (prod is the default).
+    Biased toward prod when uncertain — a prod file misclassified as test
+    is excluded from default searches, which is worse than test noise.
+    """
+    p = Path(filepath)
+    parts = p.parts
+    name = p.name
+    suffix = p.suffix.lower()
+
+    # Doc: extension-based
+    if suffix in _DOC_EXTS:
+        return "doc"
+
+    # Doc: directory-based
+    if any(part in _DOC_DIRS for part in parts):
+        return "doc"
+
+    # Generated: directory-based
+    if any(part in _GEN_DIRS for part in parts):
+        return "generated"
+
+    # Generated: file naming
+    if name.endswith(("_pb2.py", "_pb2_grpc.py")):
+        return "generated"
+    if ".generated." in name or name.endswith(".generated"):
+        return "generated"
+
+    # Test: directory-based
+    if any(part in _TEST_DIRS for part in parts):
+        return "test"
+
+    # Test: filename patterns
+    if name.startswith("test_") or name.endswith((
+        "_test.py", "_test.go", "_test.rb", "_test.rs",
+        "_spec.rb", "_test.c", "_test.cpp",
+    )):
+        return "test"
+    if any(name.endswith(ext) for ext in (
+        ".test.ts", ".spec.ts", ".test.js", ".spec.js",
+        ".test.tsx", ".spec.tsx", ".test.jsx", ".spec.jsx",
+    )):
+        return "test"
+    if name.endswith(("Test.java", "Tests.java", "Spec.java", "IT.java")):
+        return "test"
+
+    return "prod"
+
+
 def detect_languages(files):
     langs = []
     for f in files:
@@ -294,6 +362,7 @@ def index_files():
             continue
 
         chunks = chunk_file(filepath, lines)
+        file_type = classify_file(filepath)
         for idx, (start, end, text) in enumerate(chunks):
             chunk_id = f"{filepath}::{idx}"
             h = sha256(text)
@@ -306,6 +375,7 @@ def index_files():
                 "end_line": end,
                 "hash": h,
                 "lang": LANG_MAP.get(Path(filepath).suffix.lower(), "unknown"),
+                "file_type": file_type,
             })
             ids_to_upsert.append(chunk_id)
 
