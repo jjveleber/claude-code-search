@@ -60,10 +60,9 @@ fi
 "$VENV_PATH/bin/pip" install \
   "chromadb>=1.0" \
   "watchdog>=3.0" \
-  "transformers==4.46.3" \
-  "sentencepiece==0.2.0" \
+  "sentence-transformers>=3.0" \
   "psutil>=5.9" \
-  "torch==2.11.0"
+  "tree-sitter-languages>=1.10"
 
 # Restore venv directory mtime to signal reuse (not recreation)
 if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
@@ -75,7 +74,7 @@ fi
 # Downloads to temp files first; moves into place only after all succeed,
 # so a partial failure (e.g. network error) leaves existing files untouched.
 # CODE_SEARCH_LOCAL: if set, copy from that directory instead of curling (used for testing)
-_CS_FILES=(index_project.py search_code.py watch_index.py)
+_CS_FILES=(index_project.py search_code.py watch_index.py chunker.py)
 _CS_FILE_EXISTED=()
 
 # Phase 1: record pre-existence and download to temp files
