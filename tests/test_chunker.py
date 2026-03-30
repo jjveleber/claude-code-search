@@ -193,3 +193,57 @@ class TestSubChunking:
             assert start_next <= end_i + 1, (
                 f"Gap between chunk {i} (ends {end_i}) and chunk {i+1} (starts {start_next})"
             )
+
+
+class TestSemanticBoundariesC:
+    def test_c_functions_are_separate_chunks(self):
+        lines = _read("sample.c")
+        chunks = chunk_file("sample.c", lines)
+        texts = [t for _, _, t in chunks]
+        add_chunks = [t for t in texts if "int add(" in t]
+        mul_chunks = [t for t in texts if "int multiply(" in t]
+        assert len(add_chunks) >= 1, "add() not found"
+        assert len(mul_chunks) >= 1, "multiply() not found"
+        assert add_chunks[0] is not mul_chunks[0]
+
+    def test_c_no_chunk_spans_two_functions(self):
+        lines = _read("sample.c")
+        chunks = chunk_file("sample.c", lines)
+        for start, end, text in chunks:
+            assert not ("int add(" in text and "int multiply(" in text), \
+                f"Chunk {start}-{end} spans both C functions"
+
+    def test_c_add_chunk_contains_body(self):
+        lines = _read("sample.c")
+        chunks = chunk_file("sample.c", lines)
+        add_chunk = next((t for _, _, t in chunks if "int add(" in t), None)
+        assert add_chunk is not None
+        assert "return a + b" in add_chunk
+
+
+class TestSemanticBoundariesJS:
+    def test_js_functions_are_separate_chunks(self):
+        lines = _read("sample.js")
+        chunks = chunk_file("sample.js", lines)
+        texts = [t for _, _, t in chunks]
+        add_chunks = [t for t in texts if "function add(" in t]
+        mul_chunks = [t for t in texts if "function multiply(" in t]
+        assert len(add_chunks) >= 1, "add() not found"
+        assert len(mul_chunks) >= 1, "multiply() not found"
+        assert add_chunks[0] is not mul_chunks[0]
+
+    def test_js_no_chunk_spans_two_functions(self):
+        lines = _read("sample.js")
+        chunks = chunk_file("sample.js", lines)
+        for start, end, text in chunks:
+            assert not ("function add(" in text and "function multiply(" in text), \
+                f"Chunk {start}-{end} spans both JS functions"
+
+    def test_js_class_methods_extracted(self):
+        lines = _read("sample.js")
+        chunks = chunk_file("sample.js", lines)
+        texts = [t for _, _, t in chunks]
+        constructor_chunks = [t for t in texts if "constructor()" in t]
+        add_method_chunks = [t for t in texts if "add(x)" in t and "class" not in t]
+        assert len(constructor_chunks) >= 1, "constructor not found"
+        assert len(add_method_chunks) >= 1, "add method not found"
