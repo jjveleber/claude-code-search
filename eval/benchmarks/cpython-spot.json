@@ -1,0 +1,36 @@
+[
+  {
+    "id": "cpython-edit-002",
+    "prompt": "Change the error message raised when a non-callable object is called to include the word 'not callable' if it does not already",
+    "expected_files": [
+      "Objects/typeobject.c"
+    ],
+    "expected_search_targets": [],
+    "acceptable_files": [
+      "Objects/abstract.c",
+      "Python/bytecodes.c",
+      "Objects/call.c"
+    ],
+    "notes": "Category: edit / 'change'. Requires finding the non-callable TypeError in Objects/typeobject.c or Objects/abstract.c"
+  },
+  {
+    "id": "cpython-edit-005",
+    "prompt": "Remove the most prominent TODO or FIXME comment from the symtable analysis code",
+    "expected_files": [
+      "Python/symtable.c"
+    ],
+    "expected_search_targets": [],
+    "acceptable_files": [],
+    "notes": "Category: edit / 'remove'. Requires finding Python/symtable.c and locating a TODO/FIXME comment to delete"
+  },
+  {
+    "id": "cpython-edit-007",
+    "prompt": "Refactor the overallocation calculation in list_resize so the growth formula is assigned to a named variable before being used, instead of being computed inline",
+    "expected_files": [
+      "Objects/listobject.c"
+    ],
+    "expected_search_targets": [],
+    "acceptable_files": [],
+    "notes": "Category: edit / 'refactor'. Requires finding Objects/listobject.c list_resize and extracting an expression into a named variable"
+  }
+]

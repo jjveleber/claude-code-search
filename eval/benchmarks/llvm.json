@@ -1,0 +1,23 @@
+[
+  {
+    "id": "llvm-001",
+    "prompt": "Find where SelectionDAG handles vector shuffle lowering and explain the approach",
+    "expected_files": [],
+    "acceptable_files": [],
+    "notes": "Tests concept-level navigation in CodeGen"
+  },
+  {
+    "id": "llvm-002",
+    "prompt": "Find the inliner cost model and how it decides whether to inline a function",
+    "expected_files": [],
+    "acceptable_files": [],
+    "notes": "Tests cost model navigation"
+  },
+  {
+    "id": "llvm-003",
+    "prompt": "Find where register allocation spilling is handled",
+    "expected_files": [],
+    "acceptable_files": [],
+    "notes": "Tests register allocation navigation"
+  }
+]

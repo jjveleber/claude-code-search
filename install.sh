@@ -60,10 +60,11 @@ fi
 "$VENV_PATH/bin/pip" install \
   "chromadb>=1.0" \
   "watchdog>=3.0" \
-  "transformers==4.46.3" \
-  "sentencepiece==0.2.0" \
+  "sentence-transformers>=3.0" \
+  "einops>=0.7" \
   "psutil>=5.9" \
-  "torch==2.11.0"
+  "tree-sitter-languages>=1.10" \
+  "rank_bm25>=0.2.2"
 
 # Restore venv directory mtime to signal reuse (not recreation)
 if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
@@ -75,7 +76,7 @@ fi
 # Downloads to temp files first; moves into place only after all succeed,
 # so a partial failure (e.g. network error) leaves existing files untouched.
 # CODE_SEARCH_LOCAL: if set, copy from that directory instead of curling (used for testing)
-_CS_FILES=(index_project.py search_code.py watch_index.py)
+_CS_FILES=(index_project.py search_code.py watch_index.py chunker.py)
 _CS_FILE_EXISTED=()
 
 # Phase 1: record pre-existence and download to temp files
@@ -144,6 +145,11 @@ CLAUDE_BLOCK="<!-- code-search:start -->
 4. **Edit** only after verified.
 
 **Never use \`search_code.py\` when the file is already known — that is what \`Grep\` is for.**
+
+**Search scope:** By default, \`search_code.py\` searches production and test code — documentation and generated files are excluded. Each result includes a \`[prod]\`, \`[test]\`, \`[doc]\`, or \`[generated]\` label.
+- If results are all \`[test]\` files but you need implementation code, refine the query (\"find the implementation of X\") and note the mismatch to the user
+- If the user's task is explicitly about tests, say so in the query (\"find the test for X\")
+- Use \`--all\` to include documentation and generated files when explicitly needed
 
 **Environment:** Always activate the virtual environment via \`source .venv/bin/activate\` before running project scripts.
 <!-- code-search:end -->"
@@ -253,12 +259,27 @@ else:
 local_p.write_text(json.dumps(local_settings, indent=2) + "\n")
 PYEOF
 
-# Step 9: Run first index (skip if index already exists)
-if [ "$IS_GIT_REPO" = true ] && [ ! -d "chroma_db" ]; then
-    echo "Building initial index..."
-    "$VENV_PATH/bin/python3" index_project.py
-elif [ "$IS_GIT_REPO" = true ]; then
-    echo "chroma_db index already exists, skipping"
+# Step 9: Build or rebuild index
+# Rebuilds automatically when the embedding model has changed (upgrade path).
+# Old installs have no chroma_db/model.txt; new installs write "nomic-ai/CodeRankEmbed".
+_EXPECTED_MODEL="nomic-ai/CodeRankEmbed"
+if [ "$IS_GIT_REPO" = true ]; then
+    if [ ! -d "chroma_db" ]; then
+        echo "Building initial index..."
+        "$VENV_PATH/bin/python3" index_project.py
+    else
+        _INSTALLED_MODEL=""
+        if [ -f "chroma_db/model.txt" ]; then
+            _INSTALLED_MODEL=$(cat "chroma_db/model.txt")
+        fi
+        if [ "$_INSTALLED_MODEL" != "$_EXPECTED_MODEL" ]; then
+            echo "Embedding model changed ('${_INSTALLED_MODEL:-none}' → '${_EXPECTED_MODEL}') — rebuilding index..."
+            rm -rf chroma_db
+            "$VENV_PATH/bin/python3" index_project.py
+        else
+            echo "Index is up to date (model: ${_EXPECTED_MODEL})"
+        fi
+    fi
 fi
 
 echo ""
