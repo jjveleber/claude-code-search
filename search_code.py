@@ -92,7 +92,7 @@ def merge_chunks(items):
     return merged
 
 
-def search(query, n_results=5, all_files=False, use_bm25=True):
+def search(query, n_results=5, all_files=False, use_bm25=False):
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     try:
         collection = client.get_collection(name=COLLECTION_NAME)
@@ -203,8 +203,8 @@ if __name__ == "__main__":
         help="Search all files including docs and generated (default: prod and test only)",
     )
     parser.add_argument(
-        "--no-bm25", action="store_true", dest="no_bm25",
-        help="Use semantic search only, skip BM25 hybrid ranking",
+        "--bm25", action="store_true", dest="bm25",
+        help="Enable BM25 hybrid ranking (requires index built with --bm25)",
     )
     args = parser.parse_args()
-    search(" ".join(args.query), n_results=args.top, all_files=args.all_files, use_bm25=not args.no_bm25)
+    search(" ".join(args.query), n_results=args.top, all_files=args.all_files, use_bm25=args.bm25)
