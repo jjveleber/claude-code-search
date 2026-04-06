@@ -94,11 +94,8 @@ def merge_chunks(items):
 
 def search(query, n_results=5, all_files=False, use_bm25=True):
     client = chromadb.PersistentClient(path=CHROMA_PATH)
-    emb_fn = _load_embedding_fn()
     try:
-        collection = client.get_collection(
-            name=COLLECTION_NAME, embedding_function=emb_fn
-        )
+        collection = client.get_collection(name=COLLECTION_NAME)
     except Exception as e:
         print(
             f"Error: no index found. Run 'python3 index_project.py' first. ({e})",
@@ -110,6 +107,9 @@ def search(query, n_results=5, all_files=False, use_bm25=True):
     if count == 0:
         print("No results found.")
         sys.exit(2)
+
+    emb_fn = _load_embedding_fn()
+    query_embedding = emb_fn([query])[0]
 
     where = None
     use_file_type = False
@@ -125,7 +125,7 @@ def search(query, n_results=5, all_files=False, use_bm25=True):
     # Fetch more semantic candidates for RRF
     n_candidates = min(n_results * 4, count)
     results = collection.query(
-        query_texts=[query],
+        query_embeddings=[query_embedding],
         n_results=n_candidates,
         **({"where": where} if where else {}),
         include=["metadatas", "documents"],

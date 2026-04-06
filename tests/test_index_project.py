@@ -189,7 +189,7 @@ def test_loading_phase_prints_status_before_collection_get():
 
     with patch("index_project._status", side_effect=lambda m: call_order.append(f"status:{m}")), \
          patch("index_project.chromadb.PersistentClient") as mock_client, \
-         patch("index_project.embedding_functions.DefaultEmbeddingFunction"), \
+         patch("index_project.HFCodeEmbeddingFunction"), \
          patch("index_project.git_indexable_files", return_value=[]):
         mock_client.return_value.get_or_create_collection.return_value = mock_collection
         _ip_module.index_files()
@@ -206,7 +206,7 @@ def test_scanning_phase_updates_per_file():
     status_calls = []
     with patch("index_project._status", side_effect=lambda m: status_calls.append(m)), \
          patch("index_project.chromadb.PersistentClient") as mock_client, \
-         patch("index_project.embedding_functions.DefaultEmbeddingFunction"), \
+         patch("index_project.HFCodeEmbeddingFunction"), \
          patch("index_project.git_indexable_files", return_value=["a.py", "b.py", "c.py"]), \
          patch("builtins.open", mock_open(read_data="line1\n")):
         mock_client.return_value.get_or_create_collection.return_value = mock_collection

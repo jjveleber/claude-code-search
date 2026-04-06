@@ -10,12 +10,10 @@ from search_code import merge_chunks
 
 
 def make_results(items):
-    """Helper: items = list of (path, start, end, text)."""
-    return {
-        "ids": [[f"{p}::{i}" for i, (p, _, _, _) in enumerate(items)]],
-        "metadatas": [[{"path": p, "start_line": s, "end_line": e} for p, s, e, _ in items]],
-        "documents": [[t for _, _, _, t in items]],
-    }
+    """Helper: items = list of (path, start, end, text) or (path, start, end, text, file_type).
+    Returns a flat list of 5-tuples as expected by merge_chunks."""
+    return [(item[0], item[1], item[2], item[3], item[4] if len(item) > 4 else "prod")
+            for item in items]
 
 
 def test_merge_chunks_no_overlap():
@@ -86,9 +84,16 @@ def run_search(args, cwd=None):
     return result.returncode, result.stdout, result.stderr
 
 
+def copy_search_scripts(tmp_path):
+    """Copy search_code.py and its dependencies to tmp_path."""
+    shutil.copy("search_code.py", tmp_path / "search_code.py")
+    shutil.copy("index_project.py", tmp_path / "index_project.py")
+    shutil.copy("chunker.py", tmp_path / "chunker.py")
+
+
 def test_missing_index_exits_1(tmp_path):
     """search_code.py exits 1 with a clear message when chroma_db doesn't exist."""
-    shutil.copy("search_code.py", tmp_path / "search_code.py")
+    copy_search_scripts(tmp_path)
     rc, stdout, stderr = run_search(["any query"], cwd=str(tmp_path))
     assert rc == 1
     assert "index" in (stdout + stderr).lower()
@@ -96,7 +101,7 @@ def test_missing_index_exits_1(tmp_path):
 
 def test_no_results_exits_2(tmp_path):
     """search_code.py exits 2 with 'No results found.' when index is empty."""
-    shutil.copy("search_code.py", tmp_path / "search_code.py")
+    copy_search_scripts(tmp_path)
     # Create an empty chroma_db
     chromadb.PersistentClient(path=str(tmp_path / "chroma_db")).get_or_create_collection("project_code")
     rc, stdout, stderr = run_search(["any query"], cwd=str(tmp_path))
@@ -106,7 +111,7 @@ def test_no_results_exits_2(tmp_path):
 
 def test_top_flag_accepted(tmp_path):
     """--top N flag is accepted without error (even on missing index, the arg is parsed first)."""
-    shutil.copy("search_code.py", tmp_path / "search_code.py")
+    copy_search_scripts(tmp_path)
     rc, stdout, stderr = run_search(["--top", "10", "some query"], cwd=str(tmp_path))
     # Exit 1 expected (no index), but NOT exit 2 (arg parse error)
     assert rc != 2, f"argparse failed: {stderr}"
@@ -136,7 +141,7 @@ def test_merge_chunks_overlap_exceeds_lines():
 
 def test_search_error_includes_original_exception(tmp_path):
     """When get_collection fails, the error message includes the original exception detail."""
-    shutil.copy("search_code.py", tmp_path / "search_code.py")
+    copy_search_scripts(tmp_path)
     # Create chroma_db with a different collection name (not "project_code"),
     # so get_collection("project_code") raises a "collection not found" exception.
     chromadb.PersistentClient(path=str(tmp_path / "chroma_db")).get_or_create_collection("other")
@@ -155,6 +160,7 @@ def test_index_reflects_edits(tmp_path):
     """After editing a tracked file and re-indexing, the new content appears in the chroma store."""
     import subprocess as _subprocess
     shutil.copy("index_project.py", tmp_path / "index_project.py")
+    shutil.copy("chunker.py", tmp_path / "chunker.py")
     _subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
     _subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(tmp_path), check=True)
     _subprocess.run(["git", "config", "user.name", "T"], cwd=str(tmp_path), check=True)
@@ -190,6 +196,7 @@ def test_index_warns_on_unreadable_file(tmp_path):
     """index_project.py prints a warning to stderr when a file cannot be decoded."""
     import subprocess as _subprocess
     shutil.copy("index_project.py", tmp_path / "index_project.py")
+    shutil.copy("chunker.py", tmp_path / "chunker.py")
     # Set up a minimal git repo with one binary (non-UTF-8) file
     _subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
     _subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=str(tmp_path), check=True)
@@ -205,6 +212,6 @@ def test_index_warns_on_unreadable_file(tmp_path):
     assert result.returncode == 0
     output = result.stdout + result.stderr
     assert "binary.bin" in output, f"Expected skipped-file warning mentioning binary.bin, got: {output!r}"
-    assert "warning" in output.lower() or "skipping" in output.lower(), (
-        f"Expected 'warning' or 'skipping' in output, got: {output!r}"
+    assert any(word in output.lower() for word in ("warning", "skipping", "skipped")), (
+        f"Expected 'warning', 'skipping', or 'skipped' in output, got: {output!r}"
     )

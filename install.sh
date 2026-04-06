@@ -61,6 +61,7 @@ fi
   "chromadb>=1.0" \
   "watchdog>=3.0" \
   "sentence-transformers>=3.0" \
+  "einops>=0.7" \
   "psutil>=5.9" \
   "tree-sitter-languages>=1.10" \
   "rank_bm25>=0.2.2"
@@ -258,12 +259,27 @@ else:
 local_p.write_text(json.dumps(local_settings, indent=2) + "\n")
 PYEOF
 
-# Step 9: Run first index (skip if index already exists)
-if [ "$IS_GIT_REPO" = true ] && [ ! -d "chroma_db" ]; then
-    echo "Building initial index..."
-    "$VENV_PATH/bin/python3" index_project.py
-elif [ "$IS_GIT_REPO" = true ]; then
-    echo "chroma_db index already exists, skipping"
+# Step 9: Build or rebuild index
+# Rebuilds automatically when the embedding model has changed (upgrade path).
+# Old installs have no chroma_db/model.txt; new installs write "nomic-ai/CodeRankEmbed".
+_EXPECTED_MODEL="nomic-ai/CodeRankEmbed"
+if [ "$IS_GIT_REPO" = true ]; then
+    if [ ! -d "chroma_db" ]; then
+        echo "Building initial index..."
+        "$VENV_PATH/bin/python3" index_project.py
+    else
+        _INSTALLED_MODEL=""
+        if [ -f "chroma_db/model.txt" ]; then
+            _INSTALLED_MODEL=$(cat "chroma_db/model.txt")
+        fi
+        if [ "$_INSTALLED_MODEL" != "$_EXPECTED_MODEL" ]; then
+            echo "Embedding model changed ('${_INSTALLED_MODEL:-none}' → '${_EXPECTED_MODEL}') — rebuilding index..."
+            rm -rf chroma_db
+            "$VENV_PATH/bin/python3" index_project.py
+        else
+            echo "Index is up to date (model: ${_EXPECTED_MODEL})"
+        fi
+    fi
 fi
 
 echo ""
