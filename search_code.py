@@ -3,7 +3,6 @@ import sys
 import json
 from pathlib import Path
 import chromadb
-from rank_bm25 import BM25Okapi
 from index_project import HFCodeEmbeddingFunction
 
 CHROMA_PATH = "./chroma_db"
@@ -26,6 +25,7 @@ def _load_bm25():
     if not corpus_path.exists():
         return None, []
     try:
+        from rank_bm25 import BM25Okapi
         corpus = json.loads(corpus_path.read_text())
         id_list = list(corpus.keys())
         tokenized = [_tokenize_for_bm25(corpus[cid]) for cid in id_list]

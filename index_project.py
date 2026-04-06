@@ -181,15 +181,14 @@ LANG_MAP = {
 
 _TEST_DIRS = frozenset({
     "test", "tests", "__tests__", "spec", "specs",
-    "e2e", "integration", "unit", "functional",
-    "testdata", "test_data", "fixtures",
+    "e2e", "testdata", "test_data", "fixtures",
 })
 _DOC_DIRS = frozenset({
     "doc", "docs", "documentation", "Doc", "pydoc_data",
-    "man", "_site", "site",
+    "man", "_site",
 })
 _GEN_DIRS = frozenset({
-    "clinic", "generated", "__generated__", "gen", "auto-generated",
+    "clinic", "generated", "__generated__", "auto-generated",
 })
 _DOC_EXTS = frozenset({".md", ".rst", ".adoc", ".txt"})
 

@@ -286,3 +286,50 @@ def test_batch_delete_prints_newline_terminator_after_batches():
          patch("builtins.print", side_effect=lambda *a, **kw: bare_prints.append(a) if not a else None):
         _ip_module._batch_delete(MagicMock(), ["id1"])
     assert () in bare_prints
+
+
+# --- classify_file ---
+
+from index_project import classify_file
+
+def test_classify_prod_regular_file():
+    assert classify_file("src/utils.py") == "prod"
+
+def test_classify_test_by_dirname():
+    assert classify_file("tests/test_utils.py") == "test"
+    assert classify_file("src/__tests__/foo.js") == "test"
+
+def test_classify_test_by_filename():
+    assert classify_file("src/utils_test.py") == "test"
+    assert classify_file("src/test_utils.py") == "test"
+
+def test_classify_doc_by_extension():
+    assert classify_file("README.md") == "doc"
+    assert classify_file("docs/guide.rst") == "doc"
+
+def test_classify_generated_by_dirname():
+    assert classify_file("proto/generated/foo.py") == "generated"
+    assert classify_file("src/__generated__/types.ts") == "generated"
+
+def test_classify_generated_by_filename():
+    assert classify_file("foo_pb2.py") == "generated"
+    assert classify_file("bar_pb2_grpc.py") == "generated"
+
+def test_integration_dir_is_prod():
+    """integration/ is a legitimate production directory name — must not be misclassified."""
+    assert classify_file("src/integration/stripe.py") == "prod"
+
+def test_unit_dir_is_prod():
+    """unit/ could be an organizational unit in production code."""
+    assert classify_file("src/unit/billing.py") == "prod"
+
+def test_functional_dir_is_prod():
+    assert classify_file("src/functional/utils.py") == "prod"
+
+def test_gen_dir_is_prod():
+    """gen/ is commonly used for code generation utilities, not generated output."""
+    assert classify_file("cmd/gen/main.go") == "prod"
+
+def test_site_dir_is_prod():
+    """site/ is a common production web assets directory."""
+    assert classify_file("site/index.html") == "prod"
