@@ -3,6 +3,7 @@ import os
 import subprocess
 import shutil
 import chromadb
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -215,3 +216,61 @@ def test_index_warns_on_unreadable_file(tmp_path):
     assert any(word in output.lower() for word in ("warning", "skipping", "skipped")), (
         f"Expected 'warning', 'skipping', or 'skipped' in output, got: {output!r}"
     )
+
+
+# ── Chunk 1: search() returns data, format_results() prints ──────────────────
+
+from search_code import format_results
+
+
+def test_search_returns_list_not_none(tmp_path, monkeypatch):
+    """search() returns a list rather than printing and returning None."""
+    import chromadb
+    from unittest.mock import patch, MagicMock
+
+    monkeypatch.chdir(tmp_path)
+    shutil.copy(os.path.join(os.path.dirname(__file__), "..", "search_code.py"), tmp_path / "search_code.py")
+    shutil.copy(os.path.join(os.path.dirname(__file__), "..", "index_project.py"), tmp_path / "index_project.py")
+    shutil.copy(os.path.join(os.path.dirname(__file__), "..", "chunker.py"), tmp_path / "chunker.py")
+
+    client = chromadb.PersistentClient(path=str(tmp_path / "chroma_db"))
+    col = client.get_or_create_collection("project_code")
+    col.add(
+        ids=["chunk1"],
+        documents=["def hello(): pass"],
+        embeddings=[[0.1] * 768],
+        metadatas=[{"path": "hello.py", "start_line": 1, "end_line": 1,
+                    "lang": "python", "file_type": "prod"}],
+    )
+    (tmp_path / "chroma_db" / "model.txt").write_text("nomic-ai/CodeRankEmbed")
+
+    sys.path.insert(0, str(tmp_path))
+    try:
+        import importlib
+        import search_code as sc
+        importlib.reload(sc)
+        mock_fn = MagicMock(return_value=[[0.1] * 768])
+        with patch.object(sc, '_load_embedding_fn', return_value=mock_fn):
+            results = sc.search("hello", n_results=1)
+        assert results is not None
+        assert isinstance(results, list)
+    finally:
+        sys.path.pop(0)
+
+
+def test_format_results_exits_2_on_empty(capsys):
+    """format_results([]) exits with code 2 and prints 'No results found.'"""
+    with pytest.raises(SystemExit) as exc:
+        format_results([])
+    assert exc.value.code == 2
+    assert "no results" in capsys.readouterr().out.lower()
+
+
+def test_format_results_prints_match(capsys):
+    """format_results prints MATCH header with path, lines, and file_type label."""
+    results = [["hello.py", 1, 3, "def hello(): pass\n", "prod"]]
+    format_results(results)
+    out = capsys.readouterr().out
+    assert "MATCH 1" in out
+    assert "hello.py" in out
+    assert "[prod]" in out

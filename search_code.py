@@ -93,6 +93,11 @@ def merge_chunks(items):
 
 
 def search(query, n_results=5, all_files=False, use_bm25=False):
+    """Return merged search results as a list of (path, start, end, text, file_type) tuples.
+
+    Returns an empty list when the index has no documents.
+    Exits with code 1 if no index exists.
+    """
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     try:
         collection = client.get_collection(name=COLLECTION_NAME)
@@ -105,8 +110,7 @@ def search(query, n_results=5, all_files=False, use_bm25=False):
 
     count = collection.count()
     if count == 0:
-        print("No results found.")
-        sys.exit(2)
+        return []
 
     emb_fn = _load_embedding_fn()
     query_embedding = emb_fn([query])[0]
@@ -122,7 +126,6 @@ def search(query, n_results=5, all_files=False, use_bm25=False):
             source_langs = _load_source_langs()
             where = {"lang": {"$in": list(source_langs)}} if source_langs else None
 
-    # Fetch more semantic candidates for RRF
     n_candidates = min(n_results * 4, count)
     results = collection.query(
         query_embeddings=[query_embedding],
@@ -133,24 +136,23 @@ def search(query, n_results=5, all_files=False, use_bm25=False):
 
     semantic_ids = results["ids"][0]
 
-    # Build metadata cache from semantic results
     meta_cache = {}
     for i, cid in enumerate(semantic_ids):
         m = results["metadatas"][0][i]
-        meta_cache[cid] = (m["path"], m["start_line"], m["end_line"], results["documents"][0][i], m.get("file_type", ""))
+        meta_cache[cid] = (m["path"], m["start_line"], m["end_line"],
+                           results["documents"][0][i], m.get("file_type", ""))
 
-    # BM25 search + RRF merge
     bm25, id_list = _load_bm25() if use_bm25 else (None, [])
     if bm25 is not None and id_list:
         tokenized_query = _tokenize_for_bm25(query)
         bm25_scores = bm25.get_scores(tokenized_query)
-        top_indices = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:n_candidates]
+        top_indices = sorted(range(len(bm25_scores)),
+                             key=lambda i: bm25_scores[i], reverse=True)[:n_candidates]
         bm25_ids = [id_list[i] for i in top_indices]
         merged_ids = _rrf_merge(semantic_ids, bm25_ids)
     else:
         merged_ids = semantic_ids
 
-    # Fetch metadata for any BM25-only IDs not already in cache
     missing = [cid for cid in merged_ids if cid not in meta_cache]
     if missing:
         extra = collection.get(ids=missing, include=["metadatas", "documents"])
@@ -161,9 +163,9 @@ def search(query, n_results=5, all_files=False, use_bm25=False):
                 continue
             if source_langs and m.get("lang") not in source_langs:
                 continue
-            meta_cache[cid] = (m["path"], m["start_line"], m["end_line"], extra["documents"][i], ft)
+            meta_cache[cid] = (m["path"], m["start_line"], m["end_line"],
+                               extra["documents"][i], ft)
 
-    # Build ordered items list up to n_results
     items = []
     seen_ids = set()
     for cid in merged_ids:
@@ -173,7 +175,11 @@ def search(query, n_results=5, all_files=False, use_bm25=False):
         if len(items) >= n_results:
             break
 
-    merged = merge_chunks(items)
+    return merge_chunks(items)
+
+
+def format_results(merged):
+    """Print merged search results to stdout. Exits with code 2 if empty."""
     if not merged:
         print("No results found.")
         sys.exit(2)
@@ -196,7 +202,7 @@ if __name__ == "__main__":
     parser.add_argument("query", nargs="+", help="Search query (natural language)")
     parser.add_argument(
         "--top", type=int, default=5, metavar="N",
-        help="Number of results to return (default: 5)"
+        help="Number of results to return (default: 5)",
     )
     parser.add_argument(
         "--all", action="store_true", dest="all_files",
@@ -207,4 +213,5 @@ if __name__ == "__main__":
         help="Enable BM25 hybrid ranking (requires index built with --bm25)",
     )
     args = parser.parse_args()
-    search(" ".join(args.query), n_results=args.top, all_files=args.all_files, use_bm25=args.bm25)
+    format_results(search(" ".join(args.query), n_results=args.top,
+                          all_files=args.all_files, use_bm25=args.bm25))
