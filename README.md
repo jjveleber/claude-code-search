@@ -17,13 +17,13 @@ curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/i
 
 This will:
 - Detect or create a `.venv` in your project and install `chromadb` and `watchdog` into it
-- Copy `index_project.py`, `search_code.py`, and `watch_index.py` into your project root
-- Add `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.claude/settings.local.json`, and `.claude/CLAUDE.md` to your `.gitignore`
+- Copy `index_project.py`, `search_code.py`, `watch_index.py`, `chunker.py`, and `search_server.py` into your project root
+- Add `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.search_server.pid`, `.claude/settings.local.json`, and `.claude/CLAUDE.md` to your `.gitignore`
 - Write the Precision Protocol block to `.claude/CLAUDE.md` (local-only, not committed)
 - Write a `UserPromptSubmit` hook to `.claude/settings.local.json` (local-only, not committed) that auto-starts the watcher at the beginning of each Claude session
 - Build the initial search index
 
-Only the three Python scripts and the `.gitignore` additions are committed. The Precision Protocol and hook are local to each developer who runs the installer — teammates who pull the repo are not affected until they run it themselves.
+Only the five Python scripts and the `.gitignore` additions are committed. The Precision Protocol and hook are local to each developer who runs the installer — teammates who pull the repo are not affected until they run it themselves.
 
 The first index run is proportional to repo size and may take a minute or more on large repos.
 
@@ -37,13 +37,19 @@ The watcher (`watch_index.py`) runs in the background during Claude sessions and
 
 The indexer is incremental — only changed chunks are re-embedded, so re-runs are fast.
 
-**BM25 hybrid search** is opt-in. Pass `--bm25` to build a keyword corpus alongside the vector index:
+**BM25 hybrid search** is opt-in at both index and query time. Pass `--bm25` to build a keyword corpus alongside the vector index:
 
 ```bash
 .venv/bin/python3 index_project.py --bm25
 ```
 
-At query time, `search_code.py` automatically uses BM25 if the corpus exists (Reciprocal Rank Fusion merges both result sets). To remove the BM25 corpus and revert to semantic-only: `index_project.py --disable-bm25`.
+Then pass `--bm25` at query time to use Reciprocal Rank Fusion to merge semantic and keyword results:
+
+```bash
+.venv/bin/python3 search_code.py --bm25 "database connection"
+```
+
+To remove the BM25 corpus and revert to semantic-only: `index_project.py --disable-bm25`.
 
 ## Search
 
@@ -56,8 +62,8 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 | Flag | Description |
 |---|---|
 | `--top N` | Return top N results (default: 5) |
-| `--no-bm25` | Force semantic-only search, even if a BM25 corpus exists |
-| `--all` | Include documentation files (Markdown, reStructuredText) in results |
+| `--bm25` | Enable BM25 hybrid ranking (requires index built with `--bm25`) |
+| `--all` | Include documentation and generated files in results (default: prod and test only) |
 
 ## What Gets Installed
 
@@ -66,9 +72,11 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 | `index_project.py` | project root | yes |
 | `search_code.py` | project root | yes |
 | `watch_index.py` | project root | yes |
+| `chunker.py` | project root | yes |
+| `search_server.py` | project root | yes |
 | `chroma_db/` | project root (created on first index) | no (gitignored) |
 | Precision Protocol block | `.claude/CLAUDE.md` | no (gitignored) |
-| `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.claude/settings.local.json`, `.claude/CLAUDE.md` entries | `.gitignore` | yes |
+| `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.search_server.pid`, `.claude/settings.local.json`, `.claude/CLAUDE.md` entries | `.gitignore` | yes |
 | Auto-watcher `UserPromptSubmit` hook | `.claude/settings.local.json` | no (gitignored) |
 
 ## Upgrade
@@ -76,7 +84,7 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 Re-running the installer does not overwrite existing files (local edits are preserved). To upgrade:
 
 ```bash
-rm index_project.py search_code.py watch_index.py
+rm index_project.py search_code.py watch_index.py chunker.py search_server.py
 curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/install.sh | bash
 ```
 
@@ -84,14 +92,15 @@ curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/i
 
 ```bash
 pkill -f watch_index.py || true
-rm -rf index_project.py search_code.py watch_index.py chroma_db/ .venv/ .watch_index.pid .watch_index.log
+pkill -f search_server.py || true
+rm -rf index_project.py search_code.py watch_index.py chunker.py search_server.py chroma_db/ .venv/ .watch_index.pid .watch_index.log .search_server.pid
 ```
 
 > **Note:** Omit `.venv/` if it predated this installation (i.e. you brought your own virtual environment).
 
 Then:
 - Remove `.claude/CLAUDE.md`
-- Remove the `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.claude/settings.local.json`, and `.claude/CLAUDE.md` lines from `.gitignore`
+- Remove the `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.search_server.pid`, `.claude/settings.local.json`, and `.claude/CLAUDE.md` lines from `.gitignore`
 - Remove `.claude/settings.local.json` (or just the `UserPromptSubmit` hook entry with `watch_index.py` if you have other settings there)
 
 ## Environment Variables
@@ -105,9 +114,21 @@ Then:
 
 1. `git ls-files` enumerates all tracked files (respects `.gitignore` automatically)
 2. Each file is split into ~60-line chunks with 10-line overlap, breaking at blank lines to keep functions intact
-3. Chunks are embedded using a model chosen by language: UniXcoder for systems languages (C/C++/Rust/Go/…), GraphCodeBERT for web/scripting, CodeBERT for config-only repos — no API key required, runs fully offline. Uses Apple MPS acceleration when available.
+3. Chunks are embedded using a model chosen by language: UniXcoder for systems languages (C/C++/Rust/Go/…), GraphCodeBERT for web/scripting, CodeBERT for config-only repos — no API key required, runs fully offline. Uses Apple MPS or AMD ROCm (auto-detected via `/dev/dxg` on WSL2) when available; otherwise CPU.
 4. On re-index, only chunks whose content has changed (SHA-256 hash comparison) are re-embedded
 5. `search_code.py` queries the vector DB (and BM25 corpus if present) and merges overlapping result chunks before printing
+
+## Persistent Search Server
+
+`search_server.py` is an optional background process that loads the embedding model once and serves search requests over a Unix socket. This eliminates the 3–7s cold-load penalty on every `search_code.py` call.
+
+```bash
+.venv/bin/python3 search_server.py &
+```
+
+`search_code.py` auto-detects the server socket and routes to it when available, falling back to direct execution silently. The server uses a project-specific socket in `/tmp/` and a `.search_server.pid` lock file in the project root (gitignored).
+
+> **Note:** Unix sockets require a native Linux filesystem. On WSL2 with the project under `/mnt/c/`, the socket still works because it lives in `/tmp/`.
 
 ## Eval
 
