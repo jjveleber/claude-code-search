@@ -7,6 +7,13 @@ import sys
 from pathlib import Path
 from collections import Counter
 
+def _maybe_enable_amd_wsl2_gpu():
+    """Set HSA_ENABLE_DXG_DETECTION=1 if running on WSL2 with AMD GPU exposed via /dev/dxg."""
+    if os.path.exists('/dev/dxg') and 'HSA_ENABLE_DXG_DETECTION' not in os.environ:
+        os.environ['HSA_ENABLE_DXG_DETECTION'] = '1'
+
+_maybe_enable_amd_wsl2_gpu()
+
 import psutil
 
 import chromadb
@@ -272,6 +279,7 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
         from sentence_transformers import SentenceTransformer
         st_model = SentenceTransformer(model_name, trust_remote_code=True, device=device)
         st_model.max_seq_length = 512
+        print(f"  Device: {st_model.device}")
         self._st_model = st_model
         _EMB_MODEL_CACHE[model_name] = st_model
 

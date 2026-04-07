@@ -43,6 +43,8 @@ assert "index_project.py installed"                        "[ -f index_project.p
 assert "search_code.py installed"                          "[ -f search_code.py ]"
 assert "watch_index.py installed"                          "[ -f watch_index.py ]"
 assert ".gitignore created"                                "[ -f .gitignore ]"
+assert ".venv/ in .gitignore"                              "grep -qxF '.venv/' .gitignore"
+assert "__pycache__/ in .gitignore"                        "grep -qxF '__pycache__/' .gitignore"
 assert "chroma_db/ in .gitignore"                          "grep -qxF 'chroma_db/' .gitignore"
 assert ".watch_index.log in .gitignore"                    "grep -qxF '.watch_index.log' .gitignore"
 assert ".watch_index.pid in .gitignore"                    "grep -qxF '.watch_index.pid' .gitignore"
@@ -70,6 +72,10 @@ CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
 SENTINEL_COUNT=$(grep -c "code-search:start" .claude/CLAUDE.md)
 assert "Precision Protocol appears exactly once in .claude/CLAUDE.md" "[ '$SENTINEL_COUNT' = '1' ]"
+VENV_COUNT=$(grep -c ".venv/" .gitignore)
+assert ".venv/ appears exactly once in .gitignore" "[ '$VENV_COUNT' = '1' ]"
+PYCACHE_COUNT=$(grep -c "__pycache__/" .gitignore)
+assert "__pycache__/ appears exactly once in .gitignore" "[ '$PYCACHE_COUNT' = '1' ]"
 GITIGNORE_COUNT=$(grep -c "chroma_db/" .gitignore)
 assert "chroma_db/ appears exactly once in .gitignore" "[ '$GITIGNORE_COUNT' = '1' ]"
 LOG_COUNT=$(grep -c ".watch_index.log" .gitignore)
@@ -250,6 +256,19 @@ assert "Precision Protocol absent from CLAUDE.md after two runs"   "! grep -q 'c
 assert "Precision Protocol in .claude/CLAUDE.md after two runs"    "grep -q 'code-search:start' .claude/CLAUDE.md"
 assert "Hook not duplicated after two runs on old install" \
     "[ \"$(grep -c 'watch_index.py' .claude/settings.local.json)\" = '1' ]"
+teardown
+
+echo ""
+echo "=== Test 15: ROCm setup is skipped on non-WSL2 systems ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh" > "$TEST_DIR/install_out.txt" 2>&1
+_exit=$?
+assert "install.sh exits 0 on non-WSL2" "[ $_exit -eq 0 ]"
+assert "ROCm install not attempted on non-WSL2" \
+    "! grep -q 'amdgpu-install' '$TEST_DIR/install_out.txt'"
+assert "index_project.py installed" "[ -f index_project.py ]"
 teardown
 
 echo ""
