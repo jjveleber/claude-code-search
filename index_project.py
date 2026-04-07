@@ -279,6 +279,7 @@ class HFCodeEmbeddingFunction(EmbeddingFunction):
         from sentence_transformers import SentenceTransformer
         st_model = SentenceTransformer(model_name, trust_remote_code=True, device=device)
         st_model.max_seq_length = 512
+        print(f"  Device: {st_model.device}")
         self._st_model = st_model
         _EMB_MODEL_CACHE[model_name] = st_model
 

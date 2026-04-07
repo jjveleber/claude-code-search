@@ -361,3 +361,19 @@ def test_maybe_enable_amd_wsl2_gpu_does_not_overwrite_existing_env():
          patch.dict(os.environ, {'HSA_ENABLE_DXG_DETECTION': 'custom'}, clear=False):
         _ip_module._maybe_enable_amd_wsl2_gpu()
         assert os.environ['HSA_ENABLE_DXG_DETECTION'] == 'custom'
+
+
+# --- HFCodeEmbeddingFunction device print ---
+
+def test_hf_embedding_function_prints_device_on_load(capsys):
+    """Device name must be printed when the model is loaded (not from cache)."""
+    mock_model = MagicMock()
+    mock_model.device = "cuda:0"
+    mock_st_class = MagicMock(return_value=mock_model)
+
+    with patch.dict(_ip_module._EMB_MODEL_CACHE, {}, clear=True), \
+         patch('sentence_transformers.SentenceTransformer', mock_st_class):
+        _ip_module.HFCodeEmbeddingFunction('test-model')
+
+    captured = capsys.readouterr()
+    assert "cuda:0" in captured.out
