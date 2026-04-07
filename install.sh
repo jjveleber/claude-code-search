@@ -55,6 +55,8 @@ if [ "$VENV_EXISTED" = true ]; then
 fi
 
 # Step 3b: WSL2 AMD GPU — install ROCm if /dev/dxg is present and ROCm not yet set up
+_ROCM_VERSION="7.2"
+_ROCM_BUILD="70200-1"
 _ROCM_TORCH=false
 if [ -e /dev/dxg ]; then
     echo ""
@@ -67,14 +69,14 @@ if [ -e /dev/dxg ]; then
     elif ! command -v sudo &>/dev/null; then
         echo "  sudo not available — skipping ROCm install. Falling back to CPU."
     else
-        echo "  ROCm not found. Installing ROCm 7.2.x (requires sudo, ~2-3 GB download)..."
+        echo "  ROCm not found. Installing ROCm ${_ROCM_VERSION}.x (requires sudo, ~2-3 GB download)..."
         echo "  You may be prompted for your password."
         echo ""
 
         _UBUNTU_CODENAME=$(. /etc/os-release 2>/dev/null && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}") || true
         case "$_UBUNTU_CODENAME" in
-            noble) _ROCM_DEB="https://repo.radeon.com/amdgpu-install/7.2/ubuntu/noble/amdgpu-install_7.2.70200-1_all.deb" ;;
-            jammy) _ROCM_DEB="https://repo.radeon.com/amdgpu-install/7.2/ubuntu/jammy/amdgpu-install_7.2.70200-1_all.deb" ;;
+            noble) _ROCM_DEB="https://repo.radeon.com/amdgpu-install/${_ROCM_VERSION}/ubuntu/noble/amdgpu-install_${_ROCM_VERSION}.${_ROCM_BUILD}_all.deb" ;;
+            jammy) _ROCM_DEB="https://repo.radeon.com/amdgpu-install/${_ROCM_VERSION}/ubuntu/jammy/amdgpu-install_${_ROCM_VERSION}.${_ROCM_BUILD}_all.deb" ;;
             *)
                 echo "  Unsupported distro '$_UBUNTU_CODENAME' — skipping ROCm install."
                 echo "  See: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/"
@@ -91,7 +93,9 @@ if [ -e /dev/dxg ]; then
 
             # Note: usermod group changes require a WSL2 restart to take effect.
             # The GPU check below may false-negative in the same session; if so,
-            # re-run install.sh after: wsl --shutdown (from PowerShell)
+            # re-run install.sh after: wsl --shutdown (from PowerShell).
+            # The PyTorch ROCm wheel (below) is also skipped until the second run
+            # after restart, when the GPU becomes visible to rocminfo.
             if { HSA_ENABLE_DXG_DETECTION=1 rocminfo 2>/dev/null || true; } | grep -q "gfx"; then
                 echo "  ROCm installed successfully. GPU detected."
                 _ROCM_TORCH=true
@@ -118,7 +122,7 @@ fi
 if [ "$_ROCM_TORCH" = true ]; then
     echo "Installing PyTorch ROCm build..."
     if ! "$VENV_PATH/bin/python3" -c "import torch; assert 'rocm' in torch.__version__" 2>/dev/null; then
-        "$VENV_PATH/bin/pip" install torch --index-url https://download.pytorch.org/whl/rocm7.2 -q
+        "$VENV_PATH/bin/pip" install torch --index-url "https://download.pytorch.org/whl/rocm${_ROCM_VERSION}" -q
         echo "  PyTorch ROCm installed."
     else
         echo "  PyTorch ROCm already installed."

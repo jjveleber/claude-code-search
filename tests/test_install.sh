@@ -259,7 +259,7 @@ assert "Hook not duplicated after two runs on old install" \
 teardown
 
 echo ""
-echo "=== Test N: ROCm setup is skipped on non-WSL2 systems ==="
+echo "=== Test 15: ROCm setup is skipped on non-WSL2 systems ==="
 setup
 git init -q
 git commit -q --allow-empty -m "init"
