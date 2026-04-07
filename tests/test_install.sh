@@ -25,8 +25,8 @@ setup() {
     TEST_DIR="$(mktemp -d)"
     cd "$TEST_DIR"
     unset VIRTUAL_ENV
-    git config --global user.email "test@test.com" 2>/dev/null || true
-    git config --global user.name "Test" 2>/dev/null || true
+    git config --local user.email "test@test.com" 2>/dev/null || true
+    git config --local user.name "Test" 2>/dev/null || true
 }
 
 teardown() {
