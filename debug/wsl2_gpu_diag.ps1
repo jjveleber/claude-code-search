@@ -1,4 +1,6 @@
-$out = "$env:USERPROFILE\Desktop\wsl2_gpu_diag.txt"
+$desktop = [Environment]::GetFolderPath("Desktop")
+if (-not $desktop -or -not (Test-Path $desktop)) { $desktop = $env:TEMP }
+$out = "$desktop\wsl2_gpu_diag.txt"
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 $ErrorActionPreference = "Continue"
 
