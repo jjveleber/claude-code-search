@@ -65,6 +65,18 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 | `--bm25` | Enable BM25 hybrid ranking (requires index built with `--bm25`) |
 | `--all` | Include documentation and generated files in results (default: prod and test only) |
 
+## Persistent Search Server
+
+`search_server.py` is an optional background process that loads the embedding model once and serves search requests over a Unix socket. This eliminates the 3–7s cold-load penalty on every `search_code.py` call.
+
+```bash
+.venv/bin/python3 search_server.py &
+```
+
+`search_code.py` auto-detects the server socket and routes to it when available, falling back to direct execution silently. The server uses a project-specific socket in `/tmp/` and a `.search_server.pid` lock file in the project root (gitignored).
+
+> **Note:** Unix sockets require a native Linux filesystem. On WSL2 with the project under `/mnt/c/`, the socket still works because it lives in `/tmp/`.
+
 ## What Gets Installed
 
 | Item | Location | Committed? |
@@ -117,18 +129,6 @@ Then:
 3. Chunks are embedded using a model chosen by language: UniXcoder for systems languages (C/C++/Rust/Go/…), GraphCodeBERT for web/scripting, CodeBERT for config-only repos — no API key required, runs fully offline. Uses Apple MPS or AMD ROCm (auto-detected via `/dev/dxg` on WSL2) when available; otherwise CPU.
 4. On re-index, only chunks whose content has changed (SHA-256 hash comparison) are re-embedded
 5. `search_code.py` queries the vector DB (and BM25 corpus if present) and merges overlapping result chunks before printing
-
-## Persistent Search Server
-
-`search_server.py` is an optional background process that loads the embedding model once and serves search requests over a Unix socket. This eliminates the 3–7s cold-load penalty on every `search_code.py` call.
-
-```bash
-.venv/bin/python3 search_server.py &
-```
-
-`search_code.py` auto-detects the server socket and routes to it when available, falling back to direct execution silently. The server uses a project-specific socket in `/tmp/` and a `.search_server.pid` lock file in the project root (gitignored).
-
-> **Note:** Unix sockets require a native Linux filesystem. On WSL2 with the project under `/mnt/c/`, the socket still works because it lives in `/tmp/`.
 
 ## Eval
 
