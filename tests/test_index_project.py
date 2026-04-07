@@ -333,3 +333,31 @@ def test_gen_dir_is_prod():
 def test_site_dir_is_prod():
     """site/ is a common production web assets directory."""
     assert classify_file("site/index.html") == "prod"
+
+
+# --- _maybe_enable_amd_wsl2_gpu ---
+
+def test_maybe_enable_amd_wsl2_gpu_sets_env_when_dxg_present():
+    """HSA_ENABLE_DXG_DETECTION must be set to '1' when /dev/dxg exists."""
+    with patch('index_project.os.path.exists', side_effect=lambda p: p == '/dev/dxg'), \
+         patch.dict(os.environ, {}, clear=False):
+        os.environ.pop('HSA_ENABLE_DXG_DETECTION', None)
+        _ip_module._maybe_enable_amd_wsl2_gpu()
+        assert os.environ.get('HSA_ENABLE_DXG_DETECTION') == '1'
+
+
+def test_maybe_enable_amd_wsl2_gpu_skips_when_dxg_absent():
+    """HSA_ENABLE_DXG_DETECTION must NOT be set when /dev/dxg is absent."""
+    with patch('index_project.os.path.exists', side_effect=lambda p: False), \
+         patch.dict(os.environ, {}, clear=False):
+        os.environ.pop('HSA_ENABLE_DXG_DETECTION', None)
+        _ip_module._maybe_enable_amd_wsl2_gpu()
+        assert 'HSA_ENABLE_DXG_DETECTION' not in os.environ
+
+
+def test_maybe_enable_amd_wsl2_gpu_does_not_overwrite_existing_env():
+    """If HSA_ENABLE_DXG_DETECTION is already set, leave it as-is."""
+    with patch('index_project.os.path.exists', side_effect=lambda p: p == '/dev/dxg'), \
+         patch.dict(os.environ, {'HSA_ENABLE_DXG_DETECTION': 'custom'}, clear=False):
+        _ip_module._maybe_enable_amd_wsl2_gpu()
+        assert os.environ['HSA_ENABLE_DXG_DETECTION'] == 'custom'
