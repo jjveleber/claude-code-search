@@ -54,8 +54,76 @@ if [ "$VENV_EXISTED" = true ]; then
     touch -r "$VENV_PATH" "$_VENV_MTIME_REF"
 fi
 
+# Step 3b: WSL2 AMD GPU — install ROCm if /dev/dxg is present and ROCm not yet set up
+_ROCM_TORCH=false
+if [ -e /dev/dxg ]; then
+    echo ""
+    echo "AMD GPU detected (WSL2 with /dev/dxg). Checking ROCm..."
+
+    # Under pipefail, use `|| true` on rocminfo so grep controls the exit status
+    if { HSA_ENABLE_DXG_DETECTION=1 rocminfo 2>/dev/null || true; } | grep -q "gfx"; then
+        echo "  ROCm already installed and GPU detected. Skipping ROCm setup."
+        _ROCM_TORCH=true
+    elif ! command -v sudo &>/dev/null; then
+        echo "  sudo not available — skipping ROCm install. Falling back to CPU."
+    else
+        echo "  ROCm not found. Installing ROCm 7.2.x (requires sudo, ~2-3 GB download)..."
+        echo "  You may be prompted for your password."
+        echo ""
+
+        _UBUNTU_CODENAME=$(. /etc/os-release 2>/dev/null && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}") || true
+        case "$_UBUNTU_CODENAME" in
+            noble) _ROCM_DEB="https://repo.radeon.com/amdgpu-install/7.2/ubuntu/noble/amdgpu-install_7.2.70200-1_all.deb" ;;
+            jammy) _ROCM_DEB="https://repo.radeon.com/amdgpu-install/7.2/ubuntu/jammy/amdgpu-install_7.2.70200-1_all.deb" ;;
+            *)
+                echo "  Unsupported distro '$_UBUNTU_CODENAME' — skipping ROCm install."
+                echo "  See: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/"
+                _UBUNTU_CODENAME=""
+                ;;
+        esac
+
+        if [ -n "${_UBUNTU_CODENAME:-}" ]; then
+            curl -fsSL "$_ROCM_DEB" -o /tmp/amdgpu-install.deb
+            sudo apt install -y /tmp/amdgpu-install.deb
+            sudo amdgpu-install --usecase=rocm --no-dkms -y
+            sudo usermod -a -G render,video "$USER"
+            rm -f /tmp/amdgpu-install.deb
+
+            # Note: usermod group changes require a WSL2 restart to take effect.
+            # The GPU check below may false-negative in the same session; if so,
+            # re-run install.sh after: wsl --shutdown (from PowerShell)
+            if { HSA_ENABLE_DXG_DETECTION=1 rocminfo 2>/dev/null || true; } | grep -q "gfx"; then
+                echo "  ROCm installed successfully. GPU detected."
+                _ROCM_TORCH=true
+            else
+                echo "  ROCm installed. GPU not yet visible (WSL2 restart may be needed)."
+                echo "  From PowerShell: wsl --shutdown — then re-run install.sh."
+            fi
+        fi
+    fi
+
+    # Only persist the env var when GPU was confirmed working
+    if [ "$_ROCM_TORCH" = true ]; then
+        if ! grep -q "HSA_ENABLE_DXG_DETECTION" ~/.bashrc 2>/dev/null; then
+            echo 'export HSA_ENABLE_DXG_DETECTION=1' >> ~/.bashrc
+            echo "  Added HSA_ENABLE_DXG_DETECTION=1 to ~/.bashrc"
+        fi
+    fi
+fi
+
 # Step 4: Install chromadb
 "$VENV_PATH/bin/python3" -m pip install --upgrade pip
+
+# Install ROCm PyTorch before sentence-transformers so pip's resolver keeps it
+if [ "$_ROCM_TORCH" = true ]; then
+    echo "Installing PyTorch ROCm build..."
+    if ! "$VENV_PATH/bin/python3" -c "import torch; assert 'rocm' in torch.__version__" 2>/dev/null; then
+        "$VENV_PATH/bin/pip" install torch --index-url https://download.pytorch.org/whl/rocm7.2 -q
+        echo "  PyTorch ROCm installed."
+    else
+        echo "  PyTorch ROCm already installed."
+    fi
+fi
 
 "$VENV_PATH/bin/pip" install \
   "chromadb>=1.0" \
@@ -110,7 +178,7 @@ done
 
 # Step 6: Update .gitignore
 if [ ! -f ".gitignore" ]; then
-    printf "chroma_db/\n.watch_index.log\n.watch_index.pid\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
+    printf ".venv/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
     echo "Created .gitignore"
 else
     if ! grep -qxF "chroma_db/" .gitignore; then
@@ -119,7 +187,7 @@ else
     else
         echo "chroma_db/ already in .gitignore"
     fi
-    for WATCH_IGNORE in ".watch_index.log" ".watch_index.pid" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
+    for WATCH_IGNORE in ".venv/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
         if ! grep -qxF "$WATCH_IGNORE" .gitignore; then
             printf "\n%s\n" "$WATCH_IGNORE" >> .gitignore
             echo "Added $WATCH_IGNORE to .gitignore"
