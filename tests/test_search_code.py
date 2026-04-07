@@ -274,3 +274,93 @@ def test_format_results_prints_match(capsys):
     assert "MATCH 1" in out
     assert "hello.py" in out
     assert "[prod]" in out
+
+
+# ── Chunk 2: socket path helper and client routing ────────────────────────────
+
+import json
+import socket as _socket
+import threading
+
+from search_code import _server_socket_path, _try_server_search
+
+
+def test_server_socket_path_is_in_tmp():
+    """`_server_socket_path()` returns a path under /tmp."""
+    p = _server_socket_path("/some/project/chroma_db")
+    assert str(p).startswith("/tmp/")
+
+
+def test_server_socket_path_is_project_specific():
+    """`_server_socket_path()` returns different paths for different chroma_db roots."""
+    p1 = _server_socket_path("/project/a/chroma_db")
+    p2 = _server_socket_path("/project/b/chroma_db")
+    assert p1 != p2
+
+
+def test_server_socket_path_same_project_same_path():
+    """Same chroma_db path always produces the same socket path."""
+    assert _server_socket_path("/x/chroma_db") == _server_socket_path("/x/chroma_db")
+
+
+def test_try_server_search_returns_none_when_no_socket(tmp_path):
+    """`_try_server_search()` returns None when the socket file doesn't exist."""
+    result = _try_server_search("hello", n_results=5, all_files=False, use_bm25=False,
+                                socket_path=str(tmp_path / "nonexistent.sock"))
+    assert result is None
+
+
+def test_try_server_search_returns_none_on_connection_refused(tmp_path):
+    """`_try_server_search()` returns None when socket file exists but no server listens."""
+    sock_path = tmp_path / "dead.sock"
+    sock_path.touch()
+    result = _try_server_search("hello", n_results=5, all_files=False, use_bm25=False,
+                                socket_path=str(sock_path))
+    assert result is None
+
+
+def test_try_server_search_returns_results_from_live_server(tmp_path):
+    """`_try_server_search()` returns parsed results when a server responds correctly."""
+    sock_path = str(tmp_path / "test.sock")
+    expected = [["hello.py", 1, 5, "def hello(): pass", "prod"]]
+
+    def fake_server():
+        srv = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        srv.bind(sock_path)
+        srv.listen(1)
+        conn, _ = srv.accept()
+        conn.recv(4096)  # consume the request
+        conn.sendall(json.dumps({"results": expected}).encode() + b"\n")
+        conn.close()
+        srv.close()
+
+    t = threading.Thread(target=fake_server, daemon=True)
+    t.start()
+    import time; time.sleep(0.05)
+
+    result = _try_server_search("hello", n_results=5, all_files=False, use_bm25=False,
+                                socket_path=sock_path)
+    assert result == expected
+
+
+def test_try_server_search_returns_none_on_error_response(tmp_path):
+    """`_try_server_search()` returns None when the server responds with an error key."""
+    sock_path = str(tmp_path / "err.sock")
+
+    def fake_server():
+        srv = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        srv.bind(sock_path)
+        srv.listen(1)
+        conn, _ = srv.accept()
+        conn.recv(4096)
+        conn.sendall(json.dumps({"error": "index missing"}).encode() + b"\n")
+        conn.close()
+        srv.close()
+
+    t = threading.Thread(target=fake_server, daemon=True)
+    t.start()
+    import time; time.sleep(0.05)
+
+    result = _try_server_search("hello", n_results=5, all_files=False, use_bm25=False,
+                                socket_path=sock_path)
+    assert result is None

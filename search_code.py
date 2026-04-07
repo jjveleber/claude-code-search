@@ -1,6 +1,8 @@
+import hashlib
 import re
 import sys
 import json
+import socket as _socket
 from pathlib import Path
 import chromadb
 from index_project import HFCodeEmbeddingFunction
@@ -9,6 +11,56 @@ CHROMA_PATH = "./chroma_db"
 COLLECTION_NAME = "project_code"
 _DEFAULT_MODEL = "nomic-ai/CodeRankEmbed"
 _DOC_LANGS = frozenset({"restructuredtext", "markdown"})  # legacy fallback for pre-migration indices
+
+
+def _server_socket_path(chroma_path=None):
+    """Return the Unix socket path for the search server for this project.
+
+    Socket lives in /tmp/ to ensure it is on the Linux filesystem (not DrvFs).
+    Path is project-specific via a SHA-1 hash of the resolved chroma_db directory.
+    """
+    if chroma_path is None:
+        chroma_path = str(Path(CHROMA_PATH).resolve())
+    h = hashlib.sha1(chroma_path.encode()).hexdigest()[:12]
+    return Path(f"/tmp/claude-code-search-{h}.sock")
+
+
+def _try_server_search(query, n_results=5, all_files=False, use_bm25=False,
+                       socket_path=None):
+    """Attempt a search via the persistent server socket.
+
+    Returns the results list on success, or None if the server is unavailable.
+    Results are lists of [path, start, end, text, file_type] (JSON arrays).
+    """
+    if socket_path is None:
+        socket_path = str(_server_socket_path())
+
+    if not Path(socket_path).exists():
+        return None
+
+    try:
+        with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as sock:
+            sock.settimeout(10.0)
+            sock.connect(socket_path)
+            request = json.dumps({
+                "query": query,
+                "n_results": n_results,
+                "all_files": all_files,
+                "use_bm25": use_bm25,
+            })
+            sock.sendall(request.encode() + b"\n")
+            buf = b""
+            while b"\n" not in buf:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+            response = json.loads(buf.split(b"\n")[0])
+            if "error" in response:
+                return None
+            return response["results"]
+    except (OSError, json.JSONDecodeError, KeyError):
+        return None
 
 
 def _tokenize_for_bm25(text):
@@ -213,5 +265,12 @@ if __name__ == "__main__":
         help="Enable BM25 hybrid ranking (requires index built with --bm25)",
     )
     args = parser.parse_args()
-    format_results(search(" ".join(args.query), n_results=args.top,
-                          all_files=args.all_files, use_bm25=args.bm25))
+    q = " ".join(args.query)
+
+    server_results = _try_server_search(q, n_results=args.top,
+                                        all_files=args.all_files, use_bm25=args.bm25)
+    if server_results is not None:
+        format_results(server_results)
+    else:
+        format_results(search(q, n_results=args.top,
+                              all_files=args.all_files, use_bm25=args.bm25))
