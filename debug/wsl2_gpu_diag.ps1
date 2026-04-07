@@ -1,12 +1,23 @@
 $out = "$env:USERPROFILE\Desktop\wsl2_gpu_diag.txt"
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+$ErrorActionPreference = "Continue"
 
 function Log($msg) { $msg | Add-Content $out }
 function Section($title) { Log "`n=== $title ===" }
 function Run($title, [scriptblock]$block) {
     Section $title
-    try { & $block | Add-Content $out }
-    catch { Log "ERROR: $_" }
+    try {
+        $result = & $block 2>&1
+        $result | ForEach-Object {
+            if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                "SCRIPT-ERROR: $_" | Add-Content $out
+            } else {
+                $_ | Add-Content $out
+            }
+        }
+    }
+    catch { Log "EXCEPTION: $_`n$($_.ScriptStackTrace)" }
+    Log "[section complete]"
 }
 
 "=== WSL2 GPU Diagnostics: $timestamp ===" | Out-File $out -Force
