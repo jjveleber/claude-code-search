@@ -122,7 +122,7 @@ fi
 if [ "$_ROCM_TORCH" = true ]; then
     echo "Installing PyTorch ROCm build..."
     if ! "$VENV_PATH/bin/python3" -c "import torch; assert 'rocm' in torch.__version__" 2>/dev/null; then
-        "$VENV_PATH/bin/pip" install torch --index-url "https://download.pytorch.org/whl/rocm${_ROCM_VERSION}" -q
+        "$VENV_PATH/bin/pip" install torch --index-url "https://download.pytorch.org/whl/rocm${_ROCM_VERSION}"
         echo "  PyTorch ROCm installed."
     else
         echo "  PyTorch ROCm already installed."
@@ -148,7 +148,7 @@ fi
 # Downloads to temp files first; moves into place only after all succeed,
 # so a partial failure (e.g. network error) leaves existing files untouched.
 # CODE_SEARCH_LOCAL: if set, copy from that directory instead of curling (used for testing)
-_CS_FILES=(index_project.py search_code.py watch_index.py chunker.py)
+_CS_FILES=(index_project.py search_code.py watch_index.py chunker.py search_server.py)
 _CS_FILE_EXISTED=()
 
 # Phase 1: record pre-existence and download to temp files
@@ -182,7 +182,7 @@ done
 
 # Step 6: Update .gitignore
 if [ ! -f ".gitignore" ]; then
-    printf ".venv/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
+    printf ".venv/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
     echo "Created .gitignore"
 else
     if ! grep -qxF "chroma_db/" .gitignore; then
@@ -191,7 +191,7 @@ else
     else
         echo "chroma_db/ already in .gitignore"
     fi
-    for WATCH_IGNORE in ".venv/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
+    for WATCH_IGNORE in ".venv/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".search_server.pid" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
         if ! grep -qxF "$WATCH_IGNORE" .gitignore; then
             printf "\n%s\n" "$WATCH_IGNORE" >> .gitignore
             echo "Added $WATCH_IGNORE to .gitignore"
@@ -359,4 +359,5 @@ echo "code-search installed successfully"
 echo "  Venv:     $VENV_PATH"
 echo "  Re-index: .venv/bin/python3 index_project.py"
 echo "  Watch:    .venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 &"
+echo "  Server:   .venv/bin/python3 search_server.py &   # optional: warm model for fast search"
 echo "  Search:   .venv/bin/python3 search_code.py \"<query>\""
