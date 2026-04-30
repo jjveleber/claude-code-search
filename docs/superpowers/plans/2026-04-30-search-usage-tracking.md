@@ -511,7 +511,7 @@ rm -f logs/search_warnings.log
 
 # First read: logs violation
 export TOOL_PARAMS='file_path="src/new_file.py"'
-unset RECENT_PATHS
+unset RECENT_READS
 unset LAST_SEARCH_TIME
 bash hooks/pre_read_grep_glob.sh
 FIRST_COUNT=$(wc -l < logs/search_warnings.log)
