@@ -144,6 +144,11 @@ if [ "$VENV_EXISTED" = true ] && [ -n "${_VENV_MTIME_REF:-}" ]; then
     rm -f "$_VENV_MTIME_REF"
 fi
 
+# Step 4b: Create logs directory for search usage tracking
+mkdir -p logs
+touch logs/.gitkeep
+echo "Created logs/ directory"
+
 # Step 5: Download files (always overwrite — install acts as update)
 # Downloads to temp files first; moves into place only after all succeed,
 # so a partial failure (e.g. network error) leaves existing files untouched.
@@ -353,6 +358,67 @@ if [ "$IS_GIT_REPO" = true ]; then
         fi
     fi
 fi
+
+# Step 10: Install search usage tracking hooks
+echo "Installing search usage tracking hooks..."
+
+SETTINGS_FILE="$HOME/.claude/settings.json"
+HOOKS_DIR="$(pwd)/hooks"
+
+# Backup existing settings
+if [[ -f "$SETTINGS_FILE" ]]; then
+    cp "$SETTINGS_FILE" "$SETTINGS_FILE.backup-$(date +%s)"
+fi
+
+# Create settings file if it doesn't exist
+mkdir -p "$(dirname "$SETTINGS_FILE")"
+if [[ ! -f "$SETTINGS_FILE" ]]; then
+    echo '{}' > "$SETTINGS_FILE"
+fi
+
+# Update settings.json with hooks (use Python for JSON manipulation)
+HOOKS_DIR="$(pwd)/hooks" python3 - <<'PYTHON_EOF'
+import json
+import os
+from pathlib import Path
+
+settings_file = Path.home() / ".claude" / "settings.json"
+settings = json.loads(settings_file.read_text())
+
+hooks_dir = os.environ.get("HOOKS_DIR", "")
+
+# Add hooks
+if "hooks" not in settings:
+    settings["hooks"] = {}
+
+# Post-tool hook for search_code.py
+post_tool = settings["hooks"].get("post_tool", [])
+search_hook = f"if [[ \"$TOOL_COMMAND\" == *search_code.py* ]]; then source {hooks_dir}/post_search_code.sh; fi"
+if search_hook not in post_tool:
+    post_tool.append(search_hook)
+settings["hooks"]["post_tool"] = post_tool
+
+# Pre-tool hook for Read/Grep/Glob
+pre_tool = settings["hooks"].get("pre_tool", [])
+rgg_hook = f"if [[ \"$TOOL_NAME\" == Read ]] || [[ \"$TOOL_NAME\" == Grep ]] || [[ \"$TOOL_NAME\" == Glob ]]; then source {hooks_dir}/pre_read_grep_glob.sh; fi"
+if rgg_hook not in pre_tool:
+    pre_tool.append(rgg_hook)
+settings["hooks"]["pre_tool"] = pre_tool
+
+# Set default config
+if "searchUsageTracking" not in settings:
+    settings["searchUsageTracking"] = {
+        "warningsVisible": False,
+        "warningsBlocking": False,
+        "searchStateTTL": 300,
+        "recentPathTTL": 600
+    }
+
+settings_file.write_text(json.dumps(settings, indent=2))
+print("Hooks installed successfully")
+PYTHON_EOF
+
+echo "Hooks installed. Run 'python3 tools/analyze_search_usage.py' to view analytics."
 
 echo ""
 echo "code-search installed successfully"
