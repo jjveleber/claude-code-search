@@ -36,9 +36,13 @@ CONFIG_PATTERNS=(
 )
 
 for pattern in "${CONFIG_PATTERNS[@]}"; do
-    if [[ "$FILE_PATH" == $pattern ]] || [[ "$(basename "$FILE_PATH")" == $pattern ]]; then
-        exit 0  # Exempted
-    fi
+    # Use case for proper glob pattern matching
+    case "$FILE_PATH" in
+        $pattern) exit 0 ;;  # Full path matches
+    esac
+    case "$(basename "$FILE_PATH")" in
+        $pattern) exit 0 ;;  # Basename matches
+    esac
 done
 
 # Exemption 2: Small files (user knows they want whole file)
@@ -63,7 +67,7 @@ if [[ -n "$RECENT_READS" ]]; then
     NOW=$(date +%s)
     while IFS=: read -r timestamp path; do
         AGE=$((NOW - timestamp))
-        if [[ $AGE -lt 600 ]] && [[ "$FILE_PATH" == "$path" ]]; then
+        if [[ $AGE -lt $RECENT_PATH_TTL ]] && [[ "$FILE_PATH" == "$path" ]]; then
             exit 0  # Already read recently, skip
         fi
     done <<< "$RECENT_READS"
