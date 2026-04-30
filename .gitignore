@@ -22,3 +22,7 @@ eval/results/*.log
 .eval_current_task
 .eval_task_index
 .eval_session_log
+
+# Search usage tracking logs
+logs/search_usage.jsonl
+logs/search_warnings.log
