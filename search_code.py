@@ -3,6 +3,9 @@ import re
 import sys
 import json
 import socket as _socket
+import os
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 import chromadb
 from index_project import HFCodeEmbeddingFunction
@@ -114,6 +117,36 @@ def _load_source_langs():
         return set()
 
 
+def _log_search_event(query, n_results, result_count, latency_ms,
+                      search_mode, use_bm25):
+    """Log search event to logs/search_usage.jsonl (JSONL format)."""
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / "search_usage.jsonl"
+
+    event = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_type": "search",
+        "query": query,
+        "n_results": n_results,
+        "result_count": result_count,
+        "latency_ms": latency_ms,
+        "search_mode": search_mode,
+        "use_bm25": use_bm25,
+        "session_id": os.getenv("LAST_SEARCH_SESSION", "unknown"),
+        "model": os.getenv("CLAUDE_MODEL", "unknown"),
+        "skill_name": os.getenv("CLAUDE_SKILL", "unknown"),
+        "agent_id": os.getenv("CLAUDE_AGENT_ID", "main"),
+        "agent_depth": int(os.getenv("CLAUDE_AGENT_DEPTH", "0")),
+    }
+
+    try:
+        with log_file.open("a") as f:
+            f.write(json.dumps(event) + "\n")
+    except Exception:
+        pass  # Silent failure — don't break search if logging fails
+
+
 def _has_file_type_metadata(collection):
     """Return True if the index has file_type metadata (requires migration or fresh index)."""
     sample = collection.get(limit=1, include=["metadatas"])
@@ -150,6 +183,8 @@ def search(query, n_results=5, all_files=False, use_bm25=False):
     Returns an empty list when the index has no documents.
     Exits with code 1 if no index exists.
     """
+    start_time = time.time()
+
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     try:
         collection = client.get_collection(name=COLLECTION_NAME)
@@ -227,6 +262,10 @@ def search(query, n_results=5, all_files=False, use_bm25=False):
         if len(items) >= n_results:
             break
 
+    latency_ms = int((time.time() - start_time) * 1000)
+    _log_search_event(query, n_results, len(items), latency_ms,
+                      "direct", use_bm25)
+
     return merge_chunks(items)
 
 
@@ -267,9 +306,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
     q = " ".join(args.query)
 
+    start_time = time.time()
     server_results = _try_server_search(q, n_results=args.top,
                                         all_files=args.all_files, use_bm25=args.bm25)
     if server_results is not None:
+        latency_ms = int((time.time() - start_time) * 1000)
+        _log_search_event(q, args.top, len(server_results), latency_ms,
+                          "server", args.bm25)
         format_results(server_results)
     else:
         format_results(search(q, n_results=args.top,
