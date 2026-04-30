@@ -77,6 +77,59 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 
 > **Note:** Unix sockets require a native Linux filesystem. On WSL2 with the project under `/mnt/c/`, the socket still works because it lives in `/tmp/`.
 
+## Search Usage Tracking
+
+**Goal:** Understand when and why semantic search is used (or should have been used) in superpowers workflows.
+
+### How It Works
+
+1. **Logging:** `search_code.py` logs every invocation to `logs/search_usage.jsonl`
+2. **State Tracking:** Post-search hook sets `LAST_SEARCH_TIME` env var
+3. **Compliance Monitoring:** Pre-tool hook detects violations of Precision Protocol
+4. **Analytics:** `tools/analyze_search_usage.py` reports compliance rates, trends, breakdowns
+
+### Viewing Analytics
+
+```bash
+# Full report
+python3 tools/analyze_search_usage.py
+
+# Last 7 days only
+python3 tools/analyze_search_usage.py --period 7
+
+# Filter by skill
+python3 tools/analyze_search_usage.py --skill debugging
+
+# Filter by model
+python3 tools/analyze_search_usage.py --model claude-sonnet-4-5
+```
+
+### Configuration
+
+Set in `~/.claude/settings.json`:
+
+```json
+{
+  "searchUsageTracking": {
+    "warningsVisible": false,      // Show warnings to Claude (Phase 2)
+    "warningsBlocking": false,     // Block non-compliant tools (Phase 3)
+    "searchStateTTL": 300,         // Search state expires after 5 min
+    "recentPathTTL": 600           // Path tracking expires after 10 min
+  }
+}
+```
+
+**Phase 1 (current):** Observation mode — violations logged, hidden from Claude  
+**Phase 2 (manual):** Set `warningsVisible: true` to show warnings  
+**Phase 3 (future):** Set `warningsBlocking: true` to enforce compliance
+
+### Log Files
+
+- `logs/search_usage.jsonl` — Search events (JSONL format)
+- `logs/search_warnings.log` — Precision Protocol violations (pipe-delimited)
+
+Both files are gitignored and safe for ad-hoc analysis with pandas/jq.
+
 ## What Gets Installed
 
 | Item | Location | Committed? |
