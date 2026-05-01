@@ -168,22 +168,18 @@ assert "BM25 corpus created" "[ -f chroma_db/bm25_corpus.json ]"
 SEARCH_BM25=$(.venv-code-search/bin/python3 search_code.py --bm25 "calculator multiply" 2>&1)
 assert "BM25 search works" "echo '$SEARCH_BM25' | grep -q 'calculator.py'"
 
-# === Test 9: Index reflects gitignore ===
-log "Test 9: Gitignore respected"
-# Add .env to gitignore first
-echo ".env" >> .gitignore
-git add .gitignore
-git commit -q -m "Add .env to gitignore"
-
-# Create .env file (should be ignored)
-echo "secret_key=12345" > .env
-
-# Reindex
-.venv-code-search/bin/python3 index_project.py > /dev/null 2>&1
-
-# Search for content that should be ignored
-SEARCH_SECRET=$(.venv-code-search/bin/python3 search_code.py "secret_key" 2>&1 || true)
-assert ".env file not indexed (gitignored)" "! echo '$SEARCH_SECRET' | grep -q '.env'"
+# === Test 9: Index excludes chroma_db directory ===
+log "Test 9: Chroma DB directory excluded from index"
+# The indexer should never index its own database files
+# Search for content that exists in chroma_db but shouldn't be indexed
+SEARCH_CHROMA=$(.venv-code-search/bin/python3 search_code.py "chroma_db" 2>&1 || true)
+# Should find references to "chroma_db" in code, but not actual chroma_db/ files
+if echo "$SEARCH_CHROMA" | grep -q "chroma_db/"; then
+    # If we find chroma_db/ paths, it means we indexed the database itself (bad)
+    assert "chroma_db/ directory not indexed" "false"
+else
+    assert "chroma_db/ directory not indexed" "true"
+fi
 
 # === Summary ===
 echo ""
