@@ -393,18 +393,18 @@ if "hooks" not in settings:
     settings["hooks"] = {}
 
 # Post-tool hook for search_code.py
-post_tool = settings["hooks"].get("post_tool", [])
+post_tool = settings["hooks"].get("PostToolUse", [])
 search_hook = f"if [[ \"$TOOL_COMMAND\" == *search_code.py* ]]; then source {hooks_dir}/post_search_code.sh; fi"
 if search_hook not in post_tool:
     post_tool.append(search_hook)
-settings["hooks"]["post_tool"] = post_tool
+settings["hooks"]["PostToolUse"] = post_tool
 
 # Pre-tool hook for Read/Grep/Glob
-pre_tool = settings["hooks"].get("pre_tool", [])
+pre_tool = settings["hooks"].get("PreToolUse", [])
 rgg_hook = f"if [[ \"$TOOL_NAME\" == Read ]] || [[ \"$TOOL_NAME\" == Grep ]] || [[ \"$TOOL_NAME\" == Glob ]]; then source {hooks_dir}/pre_read_grep_glob.sh; fi"
 if rgg_hook not in pre_tool:
     pre_tool.append(rgg_hook)
-settings["hooks"]["pre_tool"] = pre_tool
+settings["hooks"]["PreToolUse"] = pre_tool
 
 # Set default config
 if "searchUsageTracking" not in settings:
