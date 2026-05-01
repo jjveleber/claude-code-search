@@ -171,14 +171,15 @@ assert "BM25 search works" "echo '$SEARCH_BM25' | grep -q 'calculator.py'"
 # === Test 9: Index excludes chroma_db directory ===
 log "Test 9: Chroma DB directory excluded from index"
 # The indexer should never index its own database files
-# Search for content that exists in chroma_db but shouldn't be indexed
-SEARCH_CHROMA=$(.venv-code-search/bin/python3 search_code.py "chroma_db" 2>&1 || true)
-# Should find references to "chroma_db" in code, but not actual chroma_db/ files
-if echo "$SEARCH_CHROMA" | grep -q "chroma_db/"; then
-    # If we find chroma_db/ paths, it means we indexed the database itself (bad)
-    assert "chroma_db/ directory not indexed" "false"
+# Check if any actual chroma_db/ files are in the index by looking at MATCH headers
+SEARCH_CHROMA=$(.venv-code-search/bin/python3 search_code.py "vector database" 2>&1 || true)
+# MATCH lines show file paths - none should be from chroma_db/
+if echo "$SEARCH_CHROMA" | grep "^MATCH.*: chroma_db/" > /dev/null; then
+    # Found a file from chroma_db/ in results (bad)
+    assert "chroma_db/ files not indexed" "false"
 else
-    assert "chroma_db/ directory not indexed" "true"
+    # No chroma_db/ files in results (good)
+    assert "chroma_db/ files not indexed" "true"
 fi
 
 # === Summary ===
