@@ -1,11 +1,14 @@
 chroma_db/
-.venv/
+.venv-code-search/
 __pycache__/
 *.pyc
 *.pyo
 .worktrees/
 .watch_index.log
 .watch_index.pid
+.search_server.pid
+.claude/settings.local.json
+.claude/CLAUDE.md
 
 code-search-sandbox/
 

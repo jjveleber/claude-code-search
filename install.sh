@@ -21,23 +21,23 @@ if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
     echo "Warning: Not a git repo — skipping index build. Run 'python3 index_project.py' manually after initializing git."
 fi
 
-# Step 3: Detect or create venv
-# Priority: project .venv > create new .venv
+# Step 3: Detect or create isolated venv for code-search
+# Uses .venv-code-search to avoid conflicts with project's .venv
 # VIRTUAL_ENV is intentionally ignored — using a foreign venv would make
-# the .venv/bin/activate instructions in .claude/CLAUDE.md incorrect.
+# the .venv-code-search/bin/activate instructions in .claude/CLAUDE.md incorrect.
 VENV_EXISTED=false
-if [ -d ".venv" ]; then
-    VENV_PATH="$(pwd)/.venv"
+if [ -d ".venv-code-search" ]; then
+    VENV_PATH="$(pwd)/.venv-code-search"
     VENV_EXISTED=true
 else
-    echo "Creating .venv..."
-    python3 -m venv .venv
-    VENV_PATH="$(pwd)/.venv"
+    echo "Creating .venv-code-search..."
+    python3 -m venv .venv-code-search
+    VENV_PATH="$(pwd)/.venv-code-search"
 fi
 echo "Using venv: $VENV_PATH"
 
 # Save a reference file for mtime restoration when reusing an existing venv.
-# pip may create new subdirs in .venv/ (e.g. share/) which would change its mtime
+# pip may create new subdirs in .venv-code-search/ (e.g. share/) which would change its mtime
 # even though the venv was not recreated. touch -r is POSIX-portable (GNU + BSD).
 _VENV_MTIME_REF=""
 _CS_TMPFILES=()
@@ -188,7 +188,7 @@ done
 
 # Step 6: Update .gitignore
 if [ ! -f ".gitignore" ]; then
-    printf ".venv/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
+    printf ".venv-code-search/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
     echo "Created .gitignore"
 else
     if ! grep -qxF "chroma_db/" .gitignore; then
@@ -197,7 +197,7 @@ else
     else
         echo "chroma_db/ already in .gitignore"
     fi
-    for WATCH_IGNORE in ".venv/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".search_server.pid" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
+    for WATCH_IGNORE in ".venv-code-search/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".search_server.pid" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
         if ! grep -qxF "$WATCH_IGNORE" .gitignore; then
             printf "\n%s\n" "$WATCH_IGNORE" >> .gitignore
             echo "Added $WATCH_IGNORE to .gitignore"
@@ -213,11 +213,11 @@ SENTINEL="<!-- code-search:start -->"
 CLAUDE_BLOCK="<!-- code-search:start -->
 ## Precision Protocol
 
-**Rule:** Before using \`Read\`, \`Grep\`, or \`Glob\` — if the exact file path was not given to you in the current task, run \`.venv/bin/python3 search_code.py \"<query>\"\` first.
+**Rule:** Before using \`Read\`, \`Grep\`, or \`Glob\` — if the exact file path was not given to you in the current task, run \`.venv-code-search/bin/python3 search_code.py \"<query>\"\` first.
 
 1. **File path given in task?**
    - **Yes** → go to step 2
-   - **No** → run \`.venv/bin/python3 search_code.py \"<query>\"\`, then go to step 2
+   - **No** → run \`.venv-code-search/bin/python3 search_code.py \"<query>\"\`, then go to step 2
 2. **Grep** the exact location, then **Read** to confirm context.
 3. If wrong spot, refine and repeat from step 2.
 4. **Edit** only after verified.
@@ -229,7 +229,7 @@ CLAUDE_BLOCK="<!-- code-search:start -->
 - If the user's task is explicitly about tests, say so in the query (\"find the test for X\")
 - Use \`--all\` to include documentation and generated files when explicitly needed
 
-**Environment:** Always activate the virtual environment via \`source .venv/bin/activate\` before running project scripts.
+**Environment:** Always activate the virtual environment via \`source .venv-code-search/bin/activate\` before running project scripts.
 <!-- code-search:end -->"
 
 if [ ! -f ".claude/CLAUDE.md" ]; then
@@ -273,9 +273,9 @@ python3 - <<'PYEOF'
 import json, pathlib
 
 hook_cmd = (
-    'if [ -f "watch_index.py" ] && [ -f ".venv/bin/python3" ]; then '
-    '  .venv/bin/python3 index_project.py >> .watch_index.log 2>&1 & '
-    '  .venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 & '
+    'if [ -f "watch_index.py" ] && [ -f ".venv-code-search/bin/python3" ]; then '
+    '  .venv-code-search/bin/python3 index_project.py >> .watch_index.log 2>&1 & '
+    '  .venv-code-search/bin/python3 watch_index.py >> .watch_index.log 2>&1 & '
     'fi'
 )
 
@@ -424,7 +424,7 @@ echo "Hooks installed. Run 'python3 tools/analyze_search_usage.py' to view analy
 echo ""
 echo "code-search installed successfully"
 echo "  Venv:     $VENV_PATH"
-echo "  Re-index: .venv/bin/python3 index_project.py"
-echo "  Watch:    .venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 &"
-echo "  Server:   .venv/bin/python3 search_server.py &   # optional: warm model for fast search"
-echo "  Search:   .venv/bin/python3 search_code.py \"<query>\""
+echo "  Re-index: .venv-code-search/bin/python3 index_project.py"
+echo "  Watch:    .venv-code-search/bin/python3 watch_index.py >> .watch_index.log 2>&1 &"
+echo "  Server:   .venv-code-search/bin/python3 search_server.py &   # optional: warm model for fast search"
+echo "  Search:   .venv-code-search/bin/python3 search_code.py \"<query>\""

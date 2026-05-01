@@ -10,7 +10,7 @@ from eval.report import capture_git_metadata, write_report
 _EVAL_ROOT = os.path.dirname(os.path.dirname(__file__))
 SEARCH_SCRIPT = os.path.join(_EVAL_ROOT, "search_code.py")
 BENCHMARK_DIR = os.path.join(os.path.dirname(__file__), "benchmarks")
-PYTHON = os.path.join(_EVAL_ROOT, ".venv", "bin", "python3")
+PYTHON = os.path.join(_EVAL_ROOT, ".venv-code-search", "bin", "python3")
 
 _MATCH_RE = re.compile(r"^MATCH \d+: (.+?)(?:\s+\[\w+\])? \(lines \d+-\d+\)")
 

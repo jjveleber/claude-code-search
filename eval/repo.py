@@ -8,7 +8,7 @@ SETTINGS_PATH = os.path.join(ROOT_DIR, ".claude", "settings.local.json")
 INDEX_SCRIPT = os.path.join(ROOT_DIR, "index_project.py")
 CAPTURE_HOOK = os.path.join(ROOT_DIR, "eval", "hooks", "capture_session.py")
 PRODUCTION_WATCHER = os.path.join(ROOT_DIR, "watch_index.py")
-PYTHON = os.path.join(ROOT_DIR, ".venv", "bin", "python3")
+PYTHON = os.path.join(ROOT_DIR, ".venv-code-search", "bin", "python3")
 
 
 def is_dirty():

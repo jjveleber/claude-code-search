@@ -14,10 +14,10 @@ from watchdog.observers import Observer
 
 PID_FILE = ".watch_index.pid"
 LOG_FILE = ".watch_index.log"
-IGNORED_DIRS = {"chroma_db", ".venv", "__pycache__", ".git"}
+IGNORED_DIRS = {"chroma_db", ".venv-code-search", "__pycache__", ".git"}
 IGNORED_FILES = {".watch_index.pid", ".watch_index.log"}
 DEBOUNCE_SECONDS = 1.0
-INDEX_CMD = [".venv/bin/python3", "index_project.py"]
+INDEX_CMD = [".venv-code-search/bin/python3", "index_project.py"]
 
 
 def is_already_running(pid_file=PID_FILE):

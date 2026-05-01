@@ -123,7 +123,7 @@ def test_should_ignore_chroma_db():
 
 
 def test_should_ignore_venv():
-    assert should_ignore(".venv/lib/python3.11/site-packages/foo.py")
+    assert should_ignore(".venv-code-search/lib/python3.11/site-packages/foo.py")
 
 
 def test_should_ignore_git():
