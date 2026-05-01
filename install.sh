@@ -360,30 +360,27 @@ if [ "$IS_GIT_REPO" = true ]; then
     fi
 fi
 
-# Step 10: Install search usage tracking hooks
+# Step 10: Install search usage tracking hooks to .claude/settings.local.json
 echo "Installing search usage tracking hooks..."
 
-SETTINGS_FILE="$HOME/.claude/settings.json"
+SETTINGS_FILE=".claude/settings.local.json"
 HOOKS_DIR="$(pwd)/hooks"
 
-# Backup existing settings
-if [[ -f "$SETTINGS_FILE" ]]; then
-    cp "$SETTINGS_FILE" "$SETTINGS_FILE.backup-$(date +%s)"
-fi
+# Create directory if needed
+mkdir -p .claude
 
 # Create settings file if it doesn't exist
-mkdir -p "$(dirname "$SETTINGS_FILE")"
 if [[ ! -f "$SETTINGS_FILE" ]]; then
     echo '{}' > "$SETTINGS_FILE"
 fi
 
-# Update settings.json with hooks (use Python for JSON manipulation)
+# Update settings.local.json with hooks (use Python for JSON manipulation)
 HOOKS_DIR="$(pwd)/hooks" python3 - <<'PYTHON_EOF'
 import json
 import os
 from pathlib import Path
 
-settings_file = Path.home() / ".claude" / "settings.json"
+settings_file = Path(".claude/settings.local.json")
 settings = json.loads(settings_file.read_text())
 
 hooks_dir = os.environ.get("HOOKS_DIR", "")
@@ -394,15 +391,21 @@ if "hooks" not in settings:
 
 # Post-tool hook for search_code.py
 post_tool = settings["hooks"].get("PostToolUse", [])
-search_hook = f"if [[ \"$TOOL_COMMAND\" == *search_code.py* ]]; then source {hooks_dir}/post_search_code.sh; fi"
-if search_hook not in post_tool:
+search_hook_cmd = f"if [[ \"$TOOL_COMMAND\" == *search_code.py* ]]; then source {hooks_dir}/post_search_code.sh; fi"
+search_hook = {"command": search_hook_cmd}
+# Check if hook already exists by comparing command
+already_exists = any(h.get("command") == search_hook_cmd for h in post_tool if isinstance(h, dict))
+if not already_exists:
     post_tool.append(search_hook)
 settings["hooks"]["PostToolUse"] = post_tool
 
 # Pre-tool hook for Read/Grep/Glob
 pre_tool = settings["hooks"].get("PreToolUse", [])
-rgg_hook = f"if [[ \"$TOOL_NAME\" == Read ]] || [[ \"$TOOL_NAME\" == Grep ]] || [[ \"$TOOL_NAME\" == Glob ]]; then source {hooks_dir}/pre_read_grep_glob.sh; fi"
-if rgg_hook not in pre_tool:
+rgg_hook_cmd = f"if [[ \"$TOOL_NAME\" == Read ]] || [[ \"$TOOL_NAME\" == Grep ]] || [[ \"$TOOL_NAME\" == Glob ]]; then source {hooks_dir}/pre_read_grep_glob.sh; fi"
+rgg_hook = {"command": rgg_hook_cmd}
+# Check if hook already exists by comparing command
+already_exists = any(h.get("command") == rgg_hook_cmd for h in pre_tool if isinstance(h, dict))
+if not already_exists:
     pre_tool.append(rgg_hook)
 settings["hooks"]["PreToolUse"] = pre_tool
 
