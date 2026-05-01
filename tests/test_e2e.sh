@@ -162,7 +162,7 @@ assert "Test files labeled [test]" "echo '$SEARCH_PROD' | grep -q '\\[test\\]' |
 log "Test 8: BM25 functionality"
 # Build BM25 index
 .venv-code-search/bin/python3 index_project.py --bm25 > /dev/null 2>&1
-assert "BM25 corpus created" "[ -f chroma_db/bm25_corpus.pkl ]"
+assert "BM25 corpus created" "[ -f chroma_db/bm25_corpus.json ]"
 
 # Search with BM25
 SEARCH_BM25=$(.venv-code-search/bin/python3 search_code.py --bm25 "calculator multiply" 2>&1)
@@ -170,10 +170,13 @@ assert "BM25 search works" "echo '$SEARCH_BM25' | grep -q 'calculator.py'"
 
 # === Test 9: Index reflects gitignore ===
 log "Test 9: Gitignore respected"
-# Add file that should be ignored
+# Add .env to gitignore first
+echo ".env" >> .gitignore
+git add .gitignore
+git commit -q -m "Add .env to gitignore"
+
+# Create .env file (should be ignored)
 echo "secret_key=12345" > .env
-git add -A
-git commit -q -m "Add env file"
 
 # Reindex
 .venv-code-search/bin/python3 index_project.py > /dev/null 2>&1

@@ -186,6 +186,20 @@ for i in "${!_CS_FILES[@]}"; do
     fi
 done
 
+# Step 5b: Install hook scripts
+mkdir -p hooks
+for HOOK in post_search_code.sh pre_read_grep_glob.sh; do
+    if [ -n "${CODE_SEARCH_LOCAL:-}" ]; then
+        cp "${CODE_SEARCH_LOCAL}/hooks/$HOOK" "hooks/$HOOK"
+    else
+        curl -fsSL "$BASE_URL/hooks/$HOOK" -o "hooks/$HOOK"
+    fi
+    chmod +x "hooks/$HOOK"
+    if [ -f "hooks/$HOOK" ]; then
+        echo "Installed hooks/$HOOK"
+    fi
+done
+
 # Step 6: Update .gitignore
 if [ ! -f ".gitignore" ]; then
     printf ".venv-code-search/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
