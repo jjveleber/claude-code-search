@@ -218,7 +218,9 @@ git commit -q --allow-empty -m "init"
 mkdir -p .claude
 printf '{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":".venv-code-search/bin/python3 index_project.py"}]}]}}\n' > .claude/settings.local.json
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
-assert "PostToolUse hook removed from settings.local.json"  "! grep -q 'PostToolUse' .claude/settings.local.json"
+assert "Legacy PostToolUse hook (matcher:Edit) removed"  "! grep -q 'matcher.*Edit' .claude/settings.local.json"
+assert "Legacy PostToolUse hook (index_project.py) removed"  "! grep -q 'Edit.*index_project.py' .claude/settings.local.json"
+assert "New PostToolUse hook (search tracking) added"    "grep -q 'search_code.py' .claude/settings.local.json"
 assert "UserPromptSubmit hook added to settings.local.json" "grep -q 'watch_index.py' .claude/settings.local.json"
 assert "hook NOT written to settings.json"                  "! ([ -f .claude/settings.json ] && grep -q 'watch_index.py' .claude/settings.json)"
 teardown
