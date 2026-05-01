@@ -135,6 +135,7 @@ fi
   "sentence-transformers>=3.0" \
   "einops>=0.7" \
   "psutil>=5.9" \
+  "tree-sitter<0.22" \
   "tree-sitter-languages>=1.10" \
   "rank_bm25>=0.2.2"
 
