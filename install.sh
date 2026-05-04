@@ -1,8 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Auto-detected install source (set during release via GitHub Actions)
+# Empty = main branch, "v1.0.0" = release version
+INSTALL_VERSION=""
+
+# Determine installation source with priority: env var > embedded > default
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    # Explicit version override
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    # Explicit branch override
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    # Embedded version from release
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    # Default to main
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
 REPO_OWNER="${CODE_SEARCH_OWNER:-jjveleber}"
-BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/claude-code-search/main"
 
 # Step 1: Check Python version
 # TODO: determine the full supported range (floor and ceiling) for torch/transformers compatibility.

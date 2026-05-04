@@ -272,6 +272,41 @@ assert "index_project.py installed" "[ -f index_project.py ]"
 teardown
 
 echo ""
+echo "=== Test 16: Version detection - defaults to main ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+# Create test install.sh with version detection logic but empty INSTALL_VERSION
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION=""
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+echo "SOURCE_TYPE=$SOURCE_TYPE"
+echo "SOURCE_VALUE=$SOURCE_VALUE"
+INSTALL_SCRIPT
+
+bash test_install.sh > output.txt
+assert "Defaults to branch type" "grep -q 'SOURCE_TYPE=branch' output.txt"
+assert "Defaults to main" "grep -q 'SOURCE_VALUE=main' output.txt"
+teardown
+
+echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "All $PASS tests passed."
 else
