@@ -185,10 +185,14 @@ Then:
 
 ## Environment Variables
 
-| Variable | Purpose |
-|---|---|
-| `CODE_SEARCH_OWNER` | Override the GitHub username used to build the raw download URL. Useful if you fork this repo. Default: `jjveleber`. Example: `CODE_SEARCH_OWNER=myname bash install.sh` |
-| `CODE_SEARCH_LOCAL` | Copy scripts from a local directory instead of downloading via curl. Used by the integration test suite and for local development. Example: `CODE_SEARCH_LOCAL="." bash install.sh` |
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `CODE_SEARCH_VERSION` | Install from specific release tag | `CODE_SEARCH_VERSION=v1.0.0 bash install.sh` |
+| `CODE_SEARCH_BRANCH` | Install from specific branch | `CODE_SEARCH_BRANCH=develop bash install.sh` |
+| `CODE_SEARCH_OWNER` | Install from a fork (override GitHub username) | `CODE_SEARCH_OWNER=myname bash install.sh` |
+| `CODE_SEARCH_LOCAL` | Install from local directory (for testing/development) | `CODE_SEARCH_LOCAL="." bash install.sh` |
+
+**Version priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
 
 ## How It Works
 
