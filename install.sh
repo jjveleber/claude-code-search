@@ -35,6 +35,16 @@ fi
 # Construct BASE_URL based on source type
 BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/claude-code-search/${SOURCE_VALUE}"
 
+# Test URL reachability before proceeding (skip if using local files)
+if [ -z "${CODE_SEARCH_LOCAL:-}" ]; then
+    if ! curl -fsSL --head "$BASE_URL/search_code.py" >/dev/null 2>&1; then
+        echo "Error: Cannot access $SOURCE_TYPE '$SOURCE_VALUE'" >&2
+        echo "  URL: $BASE_URL" >&2
+        echo "  Check that the $SOURCE_TYPE exists and is accessible" >&2
+        exit 1
+    fi
+fi
+
 # Step 1: Check Python version
 # TODO: determine the full supported range (floor and ceiling) for torch/transformers compatibility.
 #       Known: 3.12 works. 3.14 does not. Using strict 3.12 until range is confirmed.

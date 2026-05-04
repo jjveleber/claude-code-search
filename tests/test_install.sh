@@ -521,6 +521,71 @@ assert "Default uses main URL" "grep -q 'BASE_URL=https://raw.githubusercontent.
 teardown
 
 echo ""
+echo "=== Test 22: URL reachability check ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION=""
+REPO_OWNER="${CODE_SEARCH_OWNER:-jjveleber}"
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+if [ "$SOURCE_TYPE" = "version" ] && [[ ! "$SOURCE_VALUE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid version '$SOURCE_VALUE' (expected format: v1.0.0)" >&2
+    exit 1
+fi
+
+BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/claude-code-search/${SOURCE_VALUE}"
+
+# Test URL reachability
+if ! curl -fsSL --head "$BASE_URL/search_code.py" >/dev/null 2>&1; then
+    echo "Error: Cannot access $SOURCE_TYPE '$SOURCE_VALUE'" >&2
+    echo "  URL: $BASE_URL" >&2
+    echo "  Check that the $SOURCE_TYPE exists and is accessible" >&2
+    exit 1
+fi
+
+echo "REACHABLE"
+INSTALL_SCRIPT
+
+# Test with nonexistent version
+if CODE_SEARCH_VERSION=v999.999.999 bash test_install.sh 2>&1 | grep -q "Error: Cannot access version"; then
+    echo "  PASS: Detects unreachable version"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: Should detect unreachable version"
+    FAIL=$((FAIL + 1))
+fi
+
+# Test with nonexistent branch
+if CODE_SEARCH_BRANCH=nonexistent-branch-name bash test_install.sh 2>&1 | grep -q "Error: Cannot access branch"; then
+    echo "  PASS: Detects unreachable branch"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: Should detect unreachable branch"
+    FAIL=$((FAIL + 1))
+fi
+
+teardown
+
+echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "All $PASS tests passed."
 else
