@@ -194,6 +194,34 @@ Then:
 
 **Version priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
 
+## Releases
+
+Releases are tagged as `vX.Y.Z` (e.g., `v1.0.0`). Each release includes a pre-configured `install.sh` that automatically pulls files from that version.
+
+### For Users
+
+Install a specific release:
+
+```bash
+curl -fsSL https://github.com/jjveleber/claude-code-search/releases/download/v1.0.0/install.sh | bash
+```
+
+The release asset has the version embedded, so all files are pulled from the same release tag.
+
+### For Maintainers
+
+Create a release:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub Actions automatically:
+1. Embeds the version in `install.sh`
+2. Creates a GitHub release
+3. Attaches the modified `install.sh` as a release asset
+
 ## How It Works
 
 1. `git ls-files` enumerates all tracked files (respects `.gitignore` automatically)
