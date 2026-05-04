@@ -739,15 +739,17 @@ jobs:
 
       - name: Embed version in install.sh
         run: |
-          # Use single quotes to avoid shell expansion
-          sed 's/^INSTALL_VERSION=""$/INSTALL_VERSION="${{ steps.tag.outputs.TAG_NAME }}"/' install.sh > install-release.sh
+          # GitHub Actions substitutes ${{ }} before shell execution
+          sed "s/^INSTALL_VERSION=\"\"$/INSTALL_VERSION=\"${{ steps.tag.outputs.TAG_NAME }}\"/" install.sh > install-release.sh
           chmod +x install-release.sh
 
       - name: Verify version embedding
         run: |
-          # Verify version is embedded
-          if ! grep -q 'INSTALL_VERSION="${{ steps.tag.outputs.TAG_NAME }}"' install-release.sh; then
-            echo "✗ Version embedding failed - version not found"
+          # Verify version is embedded with actual value
+          if ! grep -qE '^INSTALL_VERSION="v[0-9]+\.[0-9]+\.[0-9]+"$' install-release.sh; then
+            echo "✗ Version embedding failed - expected INSTALL_VERSION=\"vX.Y.Z\""
+            echo "Actual INSTALL_VERSION line:"
+            grep "INSTALL_VERSION=" install-release.sh || echo "(not found)"
             exit 1
           fi
           
@@ -801,11 +803,12 @@ Expected: Valid YAML with correct structure
 Run:
 ```bash
 TAG_NAME=v0.0.1-test
+# Same quoting as workflow (double quotes for variable expansion)
 sed "s/^INSTALL_VERSION=\"\"$/INSTALL_VERSION=\"$TAG_NAME\"/" install.sh > /tmp/install-test.sh
 grep "INSTALL_VERSION=" /tmp/install-test.sh | head -1
 ```
 
-Expected: Shows `INSTALL_VERSION="v0.0.1-test"`
+Expected: Shows `INSTALL_VERSION="v0.0.1-test"` (actual value, not template)
 
 - [ ] **Step 5: Commit**
 
@@ -839,10 +842,10 @@ Expected: Shows current install instructions starting with "## Install"
 
 - [ ] **Step 2: Update Install section with Edit tool**
 
-Use Edit tool with content matching (not line numbers):
+Use Edit tool with content matching. Match from "## Install" through the command, keeping "This will:" section that follows:
 
 ```
-old_string:
+old_string (from README.md):
 ## Install
 
 Run from the root of any project:
@@ -850,6 +853,8 @@ Run from the root of any project:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/install.sh | bash
 ```
+
+This will:
 
 new_string:
 ## Install
@@ -874,9 +879,11 @@ curl -fsSL https://github.com/jjveleber/claude-code-search/releases/download/v1.
 CODE_SEARCH_BRANCH=develop \
   curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/develop/install.sh | bash
 ```
+
+This will:
 ```
 
-This preserves the "This will:" section that follows.
+This keeps the bullet list under "This will:" intact.
 
 - [ ] **Step 3: Verify formatting**
 
@@ -912,13 +919,17 @@ Run:
 grep -n "^## Re-index" README.md
 ```
 
-Expected: Shows line number of Re-index section (where new section goes before)
+Expected: Shows line number of Re-index section
 
 - [ ] **Step 2: Add environment variables section before Re-index**
 
-Insert new section immediately before `## Re-index` header:
+Use Edit tool to insert new section before Re-index:
 
-```markdown
+```
+old_string:
+## Re-index
+
+new_string:
 ## Environment Variables
 
 | Variable | Description | Example |
@@ -930,6 +941,7 @@ Insert new section immediately before `## Re-index` header:
 
 **Priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
 
+## Re-index
 ```
 
 - [ ] **Step 3: Verify table formatting**
@@ -959,20 +971,28 @@ git commit -m "docs: add environment variables section to README
 **Files:**
 - Modify: `README.md` (add Releases section)
 
-- [ ] **Step 1: Locate Re-index section**
+- [ ] **Step 1: Locate Environment Variables section**
 
 Run:
 ```bash
-grep -n "^## Re-index" README.md
+grep -n "^## Environment Variables" README.md
 ```
 
-Expected: Shows line number of Re-index section
+Expected: Shows line number of Environment Variables section (added in Task 8)
 
 - [ ] **Step 2: Add Releases section after Environment Variables**
 
-Insert new section immediately after `## Environment Variables` section (added in Task 8), before `## Re-index`:
+Use Edit tool to insert after Environment Variables, before Re-index:
 
-```markdown
+```
+old_string:
+**Priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
+
+## Re-index
+
+new_string:
+**Priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
+
 ## Releases
 
 Releases are tagged as `vX.Y.Z` (e.g., `v1.0.0`). Each release includes a pre-configured `install.sh` that automatically pulls files from that version.
@@ -1001,7 +1021,10 @@ GitHub Actions automatically:
 2. Creates a GitHub release
 3. Attaches the modified `install.sh` as a release asset
 
+## Re-index
 ```
+
+Note: The Edit replaces text from Priority line through "## Re-index", inserting Releases section between Environment Variables and Re-index.
 
 - [ ] **Step 3: Verify formatting**
 
