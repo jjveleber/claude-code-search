@@ -26,6 +26,12 @@ fi
 
 REPO_OWNER="${CODE_SEARCH_OWNER:-jjveleber}"
 
+# Version format validation
+if [ "$SOURCE_TYPE" = "version" ] && [[ ! "$SOURCE_VALUE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid version '$SOURCE_VALUE' (expected format: v1.0.0)" >&2
+    exit 1
+fi
+
 # Step 1: Check Python version
 # TODO: determine the full supported range (floor and ceiling) for torch/transformers compatibility.
 #       Known: 3.12 works. 3.14 does not. Using strict 3.12 until range is confirmed.

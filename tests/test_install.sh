@@ -409,6 +409,68 @@ assert "Uses embedded version" "grep -q 'SOURCE_VALUE=v1.2.3' output.txt"
 teardown
 
 echo ""
+echo "=== Test 20: Version validation - rejects invalid format ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION=""
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+# Version format validation
+if [ "$SOURCE_TYPE" = "version" ] && [[ ! "$SOURCE_VALUE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid version '$SOURCE_VALUE' (expected format: v1.0.0)" >&2
+    exit 1
+fi
+
+echo "VALID"
+INSTALL_SCRIPT
+
+# Test invalid formats
+if CODE_SEARCH_VERSION=1.0.0 bash test_install.sh 2>&1 | grep -q "Error: Invalid version"; then
+    echo "  PASS: Rejects missing v prefix"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: Should reject missing v prefix"
+    FAIL=$((FAIL + 1))
+fi
+
+if CODE_SEARCH_VERSION=v1.0 bash test_install.sh 2>&1 | grep -q "Error: Invalid version"; then
+    echo "  PASS: Rejects incomplete version"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: Should reject incomplete version"
+    FAIL=$((FAIL + 1))
+fi
+
+# Test valid format
+if CODE_SEARCH_VERSION=v1.0.0 bash test_install.sh 2>&1 | grep -q "VALID"; then
+    echo "  PASS: Accepts valid version"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: Should accept valid version"
+    FAIL=$((FAIL + 1))
+fi
+
+teardown
+
+echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "All $PASS tests passed."
 else
