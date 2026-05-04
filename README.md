@@ -9,10 +9,25 @@ Semantic code search for any project. Install with one command — Claude can th
 
 ## Install
 
+### Latest (recommended)
+
 Run from the root of any project:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/install.sh | bash
+```
+
+### Specific Release
+
+```bash
+curl -fsSL https://github.com/jjveleber/claude-code-search/releases/download/v1.0.0/install.sh | bash
+```
+
+### Specific Branch
+
+```bash
+CODE_SEARCH_BRANCH=develop \
+  curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/develop/install.sh | bash
 ```
 
 This will:
