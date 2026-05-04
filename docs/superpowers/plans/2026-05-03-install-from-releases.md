@@ -907,61 +907,67 @@ git commit -m "docs: update README install section
 
 ---
 
-### Task 8: Add Environment Variables Documentation
+### Task 8: Update Environment Variables Documentation
 
 **Files:**
-- Modify: `README.md` (add/update environment variables section)
+- Modify: `README.md` (update existing environment variables section)
 
-- [ ] **Step 1: Locate Re-index section**
+**Context:** README already has Environment Variables section with CODE_SEARCH_OWNER and CODE_SEARCH_LOCAL. Add new variables.
+
+- [ ] **Step 1: Locate Environment Variables section**
 
 Run:
 ```bash
-grep -n "^## Re-index" README.md
+grep -n "^## Environment Variables" README.md
 ```
 
-Expected: Shows line number of Re-index section
+Expected: Shows line number (should be around line 171)
 
-- [ ] **Step 2: Add environment variables section before Re-index**
+- [ ] **Step 2: Update environment variables table**
 
-Use Edit tool to insert new section before Re-index:
+Use Edit tool to update existing section with new variables:
 
 ```
 old_string:
-## Re-index
+## Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `CODE_SEARCH_OWNER` | Override the GitHub username used to build the raw download URL. Useful if you fork this repo. Default: `jjveleber`. Example: `CODE_SEARCH_OWNER=myname bash install.sh` |
+| `CODE_SEARCH_LOCAL` | Copy scripts from a local directory instead of downloading via curl. Used by the integration test suite and for local development. Example: `CODE_SEARCH_LOCAL="." bash install.sh` |
 
 new_string:
 ## Environment Variables
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `CODE_SEARCH_VERSION` | Install from specific release tag | `CODE_SEARCH_VERSION=v1.0.0` |
-| `CODE_SEARCH_BRANCH` | Install from specific branch | `CODE_SEARCH_BRANCH=develop` |
-| `CODE_SEARCH_OWNER` | Install from a fork | `CODE_SEARCH_OWNER=yourname` |
-| `CODE_SEARCH_LOCAL` | Install from local filesystem (for testing) | `CODE_SEARCH_LOCAL=/path/to/repo` |
+| `CODE_SEARCH_VERSION` | Install from specific release tag | `CODE_SEARCH_VERSION=v1.0.0 bash install.sh` |
+| `CODE_SEARCH_BRANCH` | Install from specific branch | `CODE_SEARCH_BRANCH=develop bash install.sh` |
+| `CODE_SEARCH_OWNER` | Install from a fork (override GitHub username) | `CODE_SEARCH_OWNER=myname bash install.sh` |
+| `CODE_SEARCH_LOCAL` | Install from local directory (for testing/development) | `CODE_SEARCH_LOCAL="." bash install.sh` |
 
-**Priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
-
-## Re-index
+**Version priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
 ```
 
-- [ ] **Step 3: Verify table formatting**
+- [ ] **Step 3: Verify table updated**
 
 Run:
 ```bash
-grep -A 10 "## Environment Variables" README.md
+grep -A 12 "## Environment Variables" README.md
 ```
 
-Expected: Shows formatted table
+Expected: Shows table with 4 variables and priority line
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add README.md
-git commit -m "docs: add environment variables section to README
+git commit -m "docs: update environment variables section
 
-- Document CODE_SEARCH_VERSION and CODE_SEARCH_BRANCH
-- Show priority order for version resolution
-- Include existing variables (OWNER, LOCAL)"
+- Add CODE_SEARCH_VERSION for release installation
+- Add CODE_SEARCH_BRANCH for branch installation  
+- Add version priority order
+- Update table format for consistency"
 ```
 
 ---
@@ -971,27 +977,27 @@ git commit -m "docs: add environment variables section to README
 **Files:**
 - Modify: `README.md` (add Releases section)
 
-- [ ] **Step 1: Locate Environment Variables section**
+- [ ] **Step 1: Locate How It Works section**
 
 Run:
 ```bash
-grep -n "^## Environment Variables" README.md
+grep -n "^## How It Works" README.md
 ```
 
-Expected: Shows line number of Environment Variables section (added in Task 8)
+Expected: Shows line number (after Environment Variables, around line 178)
 
 - [ ] **Step 2: Add Releases section after Environment Variables**
 
-Use Edit tool to insert after Environment Variables, before Re-index:
+Use Edit tool to insert new section before How It Works:
 
 ```
 old_string:
-**Priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
+**Version priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
 
-## Re-index
+## How It Works
 
 new_string:
-**Priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
+**Version priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
 
 ## Releases
 
@@ -1021,10 +1027,10 @@ GitHub Actions automatically:
 2. Creates a GitHub release
 3. Attaches the modified `install.sh` as a release asset
 
-## Re-index
+## How It Works
 ```
 
-Note: The Edit replaces text from Priority line through "## Re-index", inserting Releases section between Environment Variables and Re-index.
+Note: The Edit inserts Releases section between Environment Variables and How It Works sections.
 
 - [ ] **Step 3: Verify formatting**
 
