@@ -307,6 +307,108 @@ assert "Defaults to main" "grep -q 'SOURCE_VALUE=main' output.txt"
 teardown
 
 echo ""
+echo "=== Test 17: Version detection - CODE_SEARCH_VERSION override ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION="v0.5.0"
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+echo "SOURCE_TYPE=$SOURCE_TYPE"
+echo "SOURCE_VALUE=$SOURCE_VALUE"
+INSTALL_SCRIPT
+
+CODE_SEARCH_VERSION=v1.0.0 bash test_install.sh > output.txt
+assert "Uses version type" "grep -q 'SOURCE_TYPE=version' output.txt"
+assert "Uses override version" "grep -q 'SOURCE_VALUE=v1.0.0' output.txt"
+teardown
+
+echo ""
+echo "=== Test 18: Version detection - CODE_SEARCH_BRANCH override ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION=""
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+echo "SOURCE_TYPE=$SOURCE_TYPE"
+echo "SOURCE_VALUE=$SOURCE_VALUE"
+INSTALL_SCRIPT
+
+CODE_SEARCH_BRANCH=develop bash test_install.sh > output.txt
+assert "Uses branch type" "grep -q 'SOURCE_TYPE=branch' output.txt"
+assert "Uses override branch" "grep -q 'SOURCE_VALUE=develop' output.txt"
+teardown
+
+echo ""
+echo "=== Test 19: Version detection - embedded INSTALL_VERSION ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION="v1.2.3"
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+echo "SOURCE_TYPE=$SOURCE_TYPE"
+echo "SOURCE_VALUE=$SOURCE_VALUE"
+INSTALL_SCRIPT
+
+bash test_install.sh > output.txt
+assert "Uses version type" "grep -q 'SOURCE_TYPE=version' output.txt"
+assert "Uses embedded version" "grep -q 'SOURCE_VALUE=v1.2.3' output.txt"
+teardown
+
+echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "All $PASS tests passed."
 else
