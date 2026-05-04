@@ -471,6 +471,56 @@ fi
 teardown
 
 echo ""
+echo "=== Test 21: URL construction ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION=""
+REPO_OWNER="${CODE_SEARCH_OWNER:-jjveleber}"
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+if [ "$SOURCE_TYPE" = "version" ] && [[ ! "$SOURCE_VALUE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid version '$SOURCE_VALUE' (expected format: v1.0.0)" >&2
+    exit 1
+fi
+
+BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/claude-code-search/${SOURCE_VALUE}"
+echo "BASE_URL=$BASE_URL"
+INSTALL_SCRIPT
+
+# Test version URL
+CODE_SEARCH_VERSION=v1.0.0 bash test_install.sh > output.txt
+assert "Version uses tag URL" "grep -q 'BASE_URL=https://raw.githubusercontent.com/jjveleber/claude-code-search/v1.0.0' output.txt"
+
+# Test branch URL
+CODE_SEARCH_BRANCH=develop bash test_install.sh > output.txt
+assert "Branch uses branch URL" "grep -q 'BASE_URL=https://raw.githubusercontent.com/jjveleber/claude-code-search/develop' output.txt"
+
+# Test default URL
+bash test_install.sh > output.txt
+assert "Default uses main URL" "grep -q 'BASE_URL=https://raw.githubusercontent.com/jjveleber/claude-code-search/main' output.txt"
+
+teardown
+
+echo ""
 if [ "$FAIL" -eq 0 ]; then
     echo "All $PASS tests passed."
 else

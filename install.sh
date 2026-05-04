@@ -32,6 +32,9 @@ if [ "$SOURCE_TYPE" = "version" ] && [[ ! "$SOURCE_VALUE" =~ ^v[0-9]+\.[0-9]+\.[
     exit 1
 fi
 
+# Construct BASE_URL based on source type
+BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/claude-code-search/${SOURCE_VALUE}"
+
 # Step 1: Check Python version
 # TODO: determine the full supported range (floor and ceiling) for torch/transformers compatibility.
 #       Known: 3.12 works. 3.14 does not. Using strict 3.12 until range is confirmed.
