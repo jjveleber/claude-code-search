@@ -1,0 +1,90 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract and validate tag name
+        id: tag
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_OUTPUT
+
+          # Validate semantic versioning format
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Tag '$TAG_NAME' does not match semantic versioning format (vX.Y.Z)"
+            exit 1
+          fi
+          echo "✓ Tag format valid: $TAG_NAME"
+
+      - name: Verify source has empty INSTALL_VERSION
+        run: |
+          if ! grep -q '^INSTALL_VERSION=""$' install.sh; then
+            echo "Error: install.sh should have INSTALL_VERSION=\"\" but doesn't"
+            echo "Current INSTALL_VERSION line:"
+            grep "INSTALL_VERSION=" install.sh || echo "(not found)"
+            exit 1
+          fi
+          echo "✓ Source INSTALL_VERSION is empty"
+
+      - name: Embed version in install.sh
+        run: |
+          # GitHub Actions substitutes ${{ }} before shell execution
+          sed "s/^INSTALL_VERSION=\"\"$/INSTALL_VERSION=\"${{ steps.tag.outputs.TAG_NAME }}\"/" install.sh > install-release.sh
+          chmod +x install-release.sh
+
+      - name: Verify version embedding
+        run: |
+          # Verify version is embedded with actual value
+          if ! grep -qE '^INSTALL_VERSION="v[0-9]+\.[0-9]+\.[0-9]+"$' install-release.sh; then
+            echo "✗ Version embedding failed - expected INSTALL_VERSION=\"vX.Y.Z\""
+            echo "Actual INSTALL_VERSION line:"
+            grep "INSTALL_VERSION=" install-release.sh || echo "(not found)"
+            exit 1
+          fi
+
+          # Verify file structure is intact (shebang still present)
+          if ! head -1 install-release.sh | grep -q '^#!/usr/bin/env bash$'; then
+            echo "✗ File structure corrupted - shebang missing"
+            exit 1
+          fi
+
+          echo "✓ Version embedded successfully"
+          echo "✓ File structure intact"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ steps.tag.outputs.TAG_NAME }} \
+            --title "Release ${{ steps.tag.outputs.TAG_NAME }}" \
+            --generate-notes \
+            install-release.sh#install.sh
+
+      - name: Verify release asset uploaded
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Wait briefly for asset processing
+          sleep 2
+
+          # Check that install.sh asset exists
+          if gh release view ${{ steps.tag.outputs.TAG_NAME }} --json assets --jq '.assets[].name' | grep -q '^install.sh$'; then
+            echo "✓ Release asset install.sh uploaded successfully"
+          else
+            echo "✗ Release asset install.sh not found"
+            echo "Available assets:"
+            gh release view ${{ steps.tag.outputs.TAG_NAME }} --json assets --jq '.assets[].name'
+            exit 1
+          fi
