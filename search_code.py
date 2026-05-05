@@ -290,7 +290,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Semantic code search against a ChromaDB index."
     )
-    parser.add_argument("query", nargs="+", help="Search query (natural language)")
+    parser.add_argument("query", nargs="*", help="Search query (natural language)")
     parser.add_argument(
         "--top", type=int, default=5, metavar="N",
         help="Number of results to return (default: 5)",
@@ -303,7 +303,24 @@ if __name__ == "__main__":
         "--bm25", action="store_true", dest="bm25",
         help="Enable BM25 hybrid ranking (requires index built with --bm25)",
     )
+    parser.add_argument(
+        "--version", action="store_true",
+        help="Show installed version information",
+    )
     args = parser.parse_args()
+
+    # Handle --version flag
+    if args.version:
+        version_file = Path(".code-search-version")
+        if version_file.exists():
+            print(version_file.read_text().strip())
+        else:
+            print("Version info not found (install.sh not run or old installation)")
+        sys.exit(0)
+
+    if not args.query:
+        parser.error("the following arguments are required: query")
+
     q = " ".join(args.query)
 
     start_time = time.time()

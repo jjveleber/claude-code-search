@@ -6,6 +6,7 @@ __pycache__/
 .worktrees/
 .watch_index.log
 .watch_index.pid
+.code-search-version
 
 code-search-sandbox/
 
@@ -26,3 +27,9 @@ eval/results/*.log
 # Search usage tracking logs
 logs/search_usage.jsonl
 logs/search_warnings.log
+
+.search_server.pid
+
+.claude/settings.local.json
+
+.claude/CLAUDE.md
