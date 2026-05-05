@@ -598,6 +598,42 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+echo "=== Test 23: Version tracking file creation ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh" >/dev/null 2>&1
+
+# Verify .code-search-version was created
+if [ -f ".code-search-version" ]; then
+    echo "  PASS: .code-search-version created"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: .code-search-version not created"
+    FAIL=$((FAIL + 1))
+fi
+
+# Verify file contains expected fields
+if grep -q "SOURCE_TYPE=branch" ".code-search-version" && \
+   grep -q "SOURCE_VALUE=main" ".code-search-version" && \
+   grep -q "INSTALL_DATE=" ".code-search-version"; then
+    echo "  PASS: Version file contains required fields"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: Version file missing required fields"
+    FAIL=$((FAIL + 1))
+fi
+
+# Verify search_code.py --version works
+version_output=$(.venv/bin/python3 search_code.py --version 2>&1)
+if echo "$version_output" | grep -q "SOURCE_TYPE=branch"; then
+    echo "  PASS: search_code.py --version displays version info"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: search_code.py --version failed"
+    FAIL=$((FAIL + 1))
+fi
+
 teardown
 
 echo ""
