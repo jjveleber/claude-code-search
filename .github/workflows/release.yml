@@ -50,7 +50,6 @@ jobs:
 
       - name: Embed version in install.sh
         run: |
-          # GitHub Actions substitutes ${{ }} before shell execution
           sed "s/^INSTALL_VERSION=\"\"$/INSTALL_VERSION=\"${{ steps.tag.outputs.TAG_NAME }}\"/" install.sh > install-release.sh
           chmod +x install-release.sh
 
