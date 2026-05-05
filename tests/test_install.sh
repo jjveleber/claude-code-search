@@ -454,7 +454,8 @@ echo "VALID"
 INSTALL_SCRIPT
 
 # Test invalid formats
-if CODE_SEARCH_VERSION=1.0.0 bash test_install.sh 2>&1 | grep -q "Error: Invalid version"; then
+output=$(CODE_SEARCH_VERSION=1.0.0 bash test_install.sh 2>&1 || true)
+if echo "$output" | grep -q "Error: Invalid version"; then
     echo "  PASS: Rejects missing v prefix"
     PASS=$((PASS + 1))
 else
@@ -462,7 +463,8 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-if CODE_SEARCH_VERSION=v1.0 bash test_install.sh 2>&1 | grep -q "Error: Invalid version"; then
+output=$(CODE_SEARCH_VERSION=v1.0 bash test_install.sh 2>&1 || true)
+if echo "$output" | grep -q "Error: Invalid version"; then
     echo "  PASS: Rejects incomplete version"
     PASS=$((PASS + 1))
 else
@@ -577,7 +579,8 @@ echo "REACHABLE"
 INSTALL_SCRIPT
 
 # Test with nonexistent version
-if CODE_SEARCH_VERSION=v999.999.999 bash test_install.sh 2>&1 | grep -q "Error: Cannot access version"; then
+output=$(CODE_SEARCH_VERSION=v999.999.999 bash test_install.sh 2>&1 || true)
+if echo "$output" | grep -q "Error: Cannot access version"; then
     echo "  PASS: Detects unreachable version"
     PASS=$((PASS + 1))
 else
@@ -586,7 +589,8 @@ else
 fi
 
 # Test with nonexistent branch
-if CODE_SEARCH_BRANCH=nonexistent-branch-name bash test_install.sh 2>&1 | grep -q "Error: Cannot access branch"; then
+output=$(CODE_SEARCH_BRANCH=nonexistent-branch-name bash test_install.sh 2>&1 || true)
+if echo "$output" | grep -q "Error: Cannot access branch"; then
     echo "  PASS: Detects unreachable branch"
     PASS=$((PASS + 1))
 else
