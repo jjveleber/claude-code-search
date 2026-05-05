@@ -6,6 +6,17 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Self-isolation: run tests from separate execution directory to avoid polluting main project
+if [ -z "${TEST_ISOLATED:-}" ]; then
+    TEST_EXEC_DIR="$(mktemp -d)"
+    export TEST_ISOLATED=1
+    trap "rm -rf '$TEST_EXEC_DIR'" EXIT
+    cd "$TEST_EXEC_DIR"
+    exec bash "$SCRIPT_DIR/$(basename "$0")"
+fi
+
+# Now running in isolated temp directory
 PASS=0
 FAIL=0
 
