@@ -6,6 +6,17 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Self-isolation: run tests from separate execution directory to avoid polluting main project
+if [ -z "${TEST_ISOLATED:-}" ]; then
+    TEST_EXEC_DIR="$(mktemp -d)"
+    export TEST_ISOLATED=1
+    trap "rm -rf '$TEST_EXEC_DIR'" EXIT
+    cd "$TEST_EXEC_DIR"
+    exec bash "$SCRIPT_DIR/$(basename "$0")"
+fi
+
+# Now running in isolated temp directory
 PASS=0
 FAIL=0
 
@@ -269,6 +280,324 @@ assert "install.sh exits 0 on non-WSL2" "[ $_exit -eq 0 ]"
 assert "ROCm install not attempted on non-WSL2" \
     "! grep -q 'amdgpu-install' '$TEST_DIR/install_out.txt'"
 assert "index_project.py installed" "[ -f index_project.py ]"
+teardown
+
+echo ""
+echo "=== Test 16: Version detection - defaults to main ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+# Create test install.sh with version detection logic but empty INSTALL_VERSION
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION=""
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+echo "SOURCE_TYPE=$SOURCE_TYPE"
+echo "SOURCE_VALUE=$SOURCE_VALUE"
+INSTALL_SCRIPT
+
+bash test_install.sh > output.txt
+assert "Defaults to branch type" "grep -q 'SOURCE_TYPE=branch' output.txt"
+assert "Defaults to main" "grep -q 'SOURCE_VALUE=main' output.txt"
+teardown
+
+echo ""
+echo "=== Test 17: Version detection - CODE_SEARCH_VERSION override ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION="v0.5.0"
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+echo "SOURCE_TYPE=$SOURCE_TYPE"
+echo "SOURCE_VALUE=$SOURCE_VALUE"
+INSTALL_SCRIPT
+
+CODE_SEARCH_VERSION=v1.0.0 bash test_install.sh > output.txt
+assert "Uses version type" "grep -q 'SOURCE_TYPE=version' output.txt"
+assert "Uses override version" "grep -q 'SOURCE_VALUE=v1.0.0' output.txt"
+teardown
+
+echo ""
+echo "=== Test 18: Version detection - CODE_SEARCH_BRANCH override ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION=""
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+echo "SOURCE_TYPE=$SOURCE_TYPE"
+echo "SOURCE_VALUE=$SOURCE_VALUE"
+INSTALL_SCRIPT
+
+CODE_SEARCH_BRANCH=develop bash test_install.sh > output.txt
+assert "Uses branch type" "grep -q 'SOURCE_TYPE=branch' output.txt"
+assert "Uses override branch" "grep -q 'SOURCE_VALUE=develop' output.txt"
+teardown
+
+echo ""
+echo "=== Test 19: Version detection - embedded INSTALL_VERSION ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION="v1.2.3"
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+echo "SOURCE_TYPE=$SOURCE_TYPE"
+echo "SOURCE_VALUE=$SOURCE_VALUE"
+INSTALL_SCRIPT
+
+bash test_install.sh > output.txt
+assert "Uses version type" "grep -q 'SOURCE_TYPE=version' output.txt"
+assert "Uses embedded version" "grep -q 'SOURCE_VALUE=v1.2.3' output.txt"
+teardown
+
+echo ""
+echo "=== Test 20: Version validation - rejects invalid format ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION=""
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+# Version format validation
+if [ "$SOURCE_TYPE" = "version" ] && [[ ! "$SOURCE_VALUE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid version '$SOURCE_VALUE' (expected format: v1.0.0)" >&2
+    exit 1
+fi
+
+echo "VALID"
+INSTALL_SCRIPT
+
+# Test invalid formats
+output=$(CODE_SEARCH_VERSION=1.0.0 bash test_install.sh 2>&1 || true)
+if echo "$output" | grep -q "Error: Invalid version"; then
+    echo "  PASS: Rejects missing v prefix"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: Should reject missing v prefix"
+    FAIL=$((FAIL + 1))
+fi
+
+output=$(CODE_SEARCH_VERSION=v1.0 bash test_install.sh 2>&1 || true)
+if echo "$output" | grep -q "Error: Invalid version"; then
+    echo "  PASS: Rejects incomplete version"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: Should reject incomplete version"
+    FAIL=$((FAIL + 1))
+fi
+
+# Test valid format
+if CODE_SEARCH_VERSION=v1.0.0 bash test_install.sh 2>&1 | grep -q "VALID"; then
+    echo "  PASS: Accepts valid version"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: Should accept valid version"
+    FAIL=$((FAIL + 1))
+fi
+
+teardown
+
+echo ""
+echo "=== Test 21: URL construction ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION=""
+REPO_OWNER="${CODE_SEARCH_OWNER:-jjveleber}"
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+if [ "$SOURCE_TYPE" = "version" ] && [[ ! "$SOURCE_VALUE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid version '$SOURCE_VALUE' (expected format: v1.0.0)" >&2
+    exit 1
+fi
+
+BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/claude-code-search/${SOURCE_VALUE}"
+echo "BASE_URL=$BASE_URL"
+INSTALL_SCRIPT
+
+# Test version URL
+CODE_SEARCH_VERSION=v1.0.0 bash test_install.sh > output.txt
+assert "Version uses tag URL" "grep -q 'BASE_URL=https://raw.githubusercontent.com/jjveleber/claude-code-search/v1.0.0' output.txt"
+
+# Test branch URL
+CODE_SEARCH_BRANCH=develop bash test_install.sh > output.txt
+assert "Branch uses branch URL" "grep -q 'BASE_URL=https://raw.githubusercontent.com/jjveleber/claude-code-search/develop' output.txt"
+
+# Test default URL
+bash test_install.sh > output.txt
+assert "Default uses main URL" "grep -q 'BASE_URL=https://raw.githubusercontent.com/jjveleber/claude-code-search/main' output.txt"
+
+teardown
+
+echo ""
+echo "=== Test 22: URL reachability check ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+
+cat > test_install.sh << 'INSTALL_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_VERSION=""
+REPO_OWNER="${CODE_SEARCH_OWNER:-jjveleber}"
+
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
+if [ "$SOURCE_TYPE" = "version" ] && [[ ! "$SOURCE_VALUE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid version '$SOURCE_VALUE' (expected format: v1.0.0)" >&2
+    exit 1
+fi
+
+BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/claude-code-search/${SOURCE_VALUE}"
+
+# Test URL reachability
+if ! curl -fsSL --head "$BASE_URL/search_code.py" >/dev/null 2>&1; then
+    echo "Error: Cannot access $SOURCE_TYPE '$SOURCE_VALUE'" >&2
+    echo "  URL: $BASE_URL" >&2
+    echo "  Check that the $SOURCE_TYPE exists and is accessible" >&2
+    exit 1
+fi
+
+echo "REACHABLE"
+INSTALL_SCRIPT
+
+# Test with nonexistent version
+output=$(CODE_SEARCH_VERSION=v999.999.999 bash test_install.sh 2>&1 || true)
+if echo "$output" | grep -q "Error: Cannot access version"; then
+    echo "  PASS: Detects unreachable version"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: Should detect unreachable version"
+    FAIL=$((FAIL + 1))
+fi
+
+# Test with nonexistent branch
+output=$(CODE_SEARCH_BRANCH=nonexistent-branch-name bash test_install.sh 2>&1 || true)
+if echo "$output" | grep -q "Error: Cannot access branch"; then
+    echo "  PASS: Detects unreachable branch"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: Should detect unreachable branch"
+    FAIL=$((FAIL + 1))
+fi
+
 teardown
 
 echo ""

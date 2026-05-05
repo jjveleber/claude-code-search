@@ -9,10 +9,25 @@ Semantic code search for any project. Install with one command — Claude can th
 
 ## Install
 
+### Latest (recommended)
+
 Run from the root of any project:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/install.sh | bash
+```
+
+### Specific Release
+
+```bash
+curl -fsSL https://github.com/jjveleber/claude-code-search/releases/download/v1.0.0/install.sh | bash
+```
+
+### Specific Branch
+
+```bash
+CODE_SEARCH_BRANCH=develop \
+  curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/develop/install.sh | bash
 ```
 
 This will:
@@ -77,6 +92,59 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 
 > **Note:** Unix sockets require a native Linux filesystem. On WSL2 with the project under `/mnt/c/`, the socket still works because it lives in `/tmp/`.
 
+## Search Usage Tracking
+
+**Goal:** Understand when and why semantic search is used (or should have been used) in superpowers workflows.
+
+### How It Works
+
+1. **Logging:** `search_code.py` logs every invocation to `logs/search_usage.jsonl`
+2. **State Tracking:** Post-search hook sets `LAST_SEARCH_TIME` env var
+3. **Compliance Monitoring:** Pre-tool hook detects violations of Precision Protocol
+4. **Analytics:** `tools/analyze_search_usage.py` reports compliance rates, trends, breakdowns
+
+### Viewing Analytics
+
+```bash
+# Full report
+python3 tools/analyze_search_usage.py
+
+# Last 7 days only
+python3 tools/analyze_search_usage.py --period 7
+
+# Filter by skill
+python3 tools/analyze_search_usage.py --skill debugging
+
+# Filter by model
+python3 tools/analyze_search_usage.py --model claude-sonnet-4-5
+```
+
+### Configuration
+
+Set in `~/.claude/settings.json`:
+
+```json
+{
+  "searchUsageTracking": {
+    "warningsVisible": false,      // Show warnings to Claude (Phase 2)
+    "warningsBlocking": false,     // Block non-compliant tools (Phase 3)
+    "searchStateTTL": 300,         // Search state expires after 5 min
+    "recentPathTTL": 600           // Path tracking expires after 10 min
+  }
+}
+```
+
+**Phase 1 (current):** Observation mode — violations logged, hidden from Claude  
+**Phase 2 (manual):** Set `warningsVisible: true` to show warnings  
+**Phase 3 (future):** Set `warningsBlocking: true` to enforce compliance
+
+### Log Files
+
+- `logs/search_usage.jsonl` — Search events (JSONL format)
+- `logs/search_warnings.log` — Precision Protocol violations (pipe-delimited)
+
+Both files are gitignored and safe for ad-hoc analysis with pandas/jq.
+
 ## What Gets Installed
 
 | Item | Location | Committed? |
@@ -117,10 +185,42 @@ Then:
 
 ## Environment Variables
 
-| Variable | Purpose |
-|---|---|
-| `CODE_SEARCH_OWNER` | Override the GitHub username used to build the raw download URL. Useful if you fork this repo. Default: `jjveleber`. Example: `CODE_SEARCH_OWNER=myname bash install.sh` |
-| `CODE_SEARCH_LOCAL` | Copy scripts from a local directory instead of downloading via curl. Used by the integration test suite and for local development. Example: `CODE_SEARCH_LOCAL="." bash install.sh` |
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `CODE_SEARCH_VERSION` | Install from specific release tag | `CODE_SEARCH_VERSION=v1.0.0 bash install.sh` |
+| `CODE_SEARCH_BRANCH` | Install from specific branch | `CODE_SEARCH_BRANCH=develop bash install.sh` |
+| `CODE_SEARCH_OWNER` | Install from a fork (override GitHub username) | `CODE_SEARCH_OWNER=myname bash install.sh` |
+| `CODE_SEARCH_LOCAL` | Install from local directory (for testing/development) | `CODE_SEARCH_LOCAL="." bash install.sh` |
+
+**Version priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
+
+## Releases
+
+Releases are tagged as `vX.Y.Z` (e.g., `v1.0.0`). Each release includes a pre-configured `install.sh` that automatically pulls files from that version.
+
+### For Users
+
+Install a specific release:
+
+```bash
+curl -fsSL https://github.com/jjveleber/claude-code-search/releases/download/v1.0.0/install.sh | bash
+```
+
+The release asset has the version embedded, so all files are pulled from the same release tag.
+
+### For Maintainers
+
+Create a release:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+GitHub Actions automatically:
+1. Embeds the version in `install.sh`
+2. Creates a GitHub release
+3. Attaches the modified `install.sh` as a release asset
 
 ## How It Works
 
