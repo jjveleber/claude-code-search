@@ -447,21 +447,27 @@ if "hooks" not in settings:
 # Post-tool hook for search_code.py
 post_tool = settings["hooks"].get("PostToolUse", [])
 search_hook_cmd = f"if [[ \"$TOOL_COMMAND\" == *search_code.py* ]]; then source {hooks_dir}/post_search_code.sh; fi"
-search_hook = {"command": search_hook_cmd}
 # Check if hook already exists by comparing command
-already_exists = any(h.get("command") == search_hook_cmd for h in post_tool if isinstance(h, dict))
+already_exists = any(
+    hook.get("command") == search_hook_cmd
+    for group in post_tool
+    for hook in group.get("hooks", [])
+)
 if not already_exists:
-    post_tool.append(search_hook)
+    post_tool.append({"hooks": [{"type": "command", "command": search_hook_cmd}]})
 settings["hooks"]["PostToolUse"] = post_tool
 
 # Pre-tool hook for Read/Grep/Glob
 pre_tool = settings["hooks"].get("PreToolUse", [])
 rgg_hook_cmd = f"if [[ \"$TOOL_NAME\" == Read ]] || [[ \"$TOOL_NAME\" == Grep ]] || [[ \"$TOOL_NAME\" == Glob ]]; then source {hooks_dir}/pre_read_grep_glob.sh; fi"
-rgg_hook = {"command": rgg_hook_cmd}
 # Check if hook already exists by comparing command
-already_exists = any(h.get("command") == rgg_hook_cmd for h in pre_tool if isinstance(h, dict))
+already_exists = any(
+    hook.get("command") == rgg_hook_cmd
+    for group in pre_tool
+    for hook in group.get("hooks", [])
+)
 if not already_exists:
-    pre_tool.append(rgg_hook)
+    pre_tool.append({"hooks": [{"type": "command", "command": rgg_hook_cmd}]})
 settings["hooks"]["PreToolUse"] = pre_tool
 
 # Set default config
