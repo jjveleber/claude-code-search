@@ -362,8 +362,7 @@ if shared_p.exists():
 local_p = pathlib.Path(".claude/settings.local.json")
 local_settings = json.loads(local_p.read_text()) if local_p.exists() else {}
 
-hooks = local_settings.setdefault("hooks", {})
-prompt_hooks = hooks.setdefault("UserPromptSubmit", [])
+prompt_hooks = local_settings.setdefault("UserPromptSubmit", [])
 
 already_present = any(
     h.get("command") == hook_cmd
@@ -371,17 +370,32 @@ already_present = any(
     for h in group.get("hooks", [])
 )
 
-# Migrate: remove legacy PostToolUse hook from settings.local.json
-post_hooks = local_settings.get("hooks", {}).get("PostToolUse", [])
-filtered_post = [
-    g for g in post_hooks
-    if not any("index_project.py" in h.get("command", "") for h in g.get("hooks", []))
-]
-if len(filtered_post) < len(post_hooks):
-    local_settings["hooks"]["PostToolUse"] = filtered_post
-    if not local_settings["hooks"]["PostToolUse"]:
-        del local_settings["hooks"]["PostToolUse"]
-    print("Removed legacy PostToolUse hook from .claude/settings.local.json")
+# Migrate: remove legacy PostToolUse hook from settings.local.json (check both old and new locations)
+for hook_path in [("hooks", "PostToolUse"), ("PostToolUse",)]:
+    if len(hook_path) == 2:
+        post_hooks = local_settings.get(hook_path[0], {}).get(hook_path[1], [])
+    else:
+        post_hooks = local_settings.get(hook_path[0], [])
+
+    filtered_post = [
+        g for g in post_hooks
+        if not any("index_project.py" in h.get("command", "") for h in g.get("hooks", []))
+    ]
+
+    if len(filtered_post) < len(post_hooks):
+        if len(hook_path) == 2:
+            if "hooks" not in local_settings:
+                local_settings["hooks"] = {}
+            local_settings["hooks"]["PostToolUse"] = filtered_post
+            if not local_settings["hooks"]["PostToolUse"]:
+                del local_settings["hooks"]["PostToolUse"]
+            if not local_settings.get("hooks"):
+                del local_settings["hooks"]
+        else:
+            local_settings["PostToolUse"] = filtered_post
+            if not local_settings["PostToolUse"]:
+                del local_settings["PostToolUse"]
+        print("Removed legacy PostToolUse hook from .claude/settings.local.json")
 
 if not already_present:
     prompt_hooks.append({"hooks": [{"type": "command", "command": hook_cmd}]})
@@ -440,12 +454,8 @@ settings = json.loads(settings_file.read_text())
 
 hooks_dir = os.environ.get("HOOKS_DIR", "")
 
-# Add hooks
-if "hooks" not in settings:
-    settings["hooks"] = {}
-
 # Post-tool hook for search_code.py
-post_tool = settings["hooks"].get("PostToolUse", [])
+post_tool = settings.get("PostToolUse", [])
 search_hook_cmd = f"if [[ \"$TOOL_COMMAND\" == *search_code.py* ]]; then source {hooks_dir}/post_search_code.sh; fi"
 # Check if hook already exists by comparing command
 already_exists = any(
@@ -455,10 +465,10 @@ already_exists = any(
 )
 if not already_exists:
     post_tool.append({"hooks": [{"type": "command", "command": search_hook_cmd}]})
-settings["hooks"]["PostToolUse"] = post_tool
+settings["PostToolUse"] = post_tool
 
 # Pre-tool hook for Read/Grep/Glob
-pre_tool = settings["hooks"].get("PreToolUse", [])
+pre_tool = settings.get("PreToolUse", [])
 rgg_hook_cmd = f"if [[ \"$TOOL_NAME\" == Read ]] || [[ \"$TOOL_NAME\" == Grep ]] || [[ \"$TOOL_NAME\" == Glob ]]; then source {hooks_dir}/pre_read_grep_glob.sh; fi"
 # Check if hook already exists by comparing command
 already_exists = any(
@@ -468,7 +478,7 @@ already_exists = any(
 )
 if not already_exists:
     pre_tool.append({"hooks": [{"type": "command", "command": rgg_hook_cmd}]})
-settings["hooks"]["PreToolUse"] = pre_tool
+settings["PreToolUse"] = pre_tool
 
 # Set default config
 if "searchUsageTracking" not in settings:
