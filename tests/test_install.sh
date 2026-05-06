@@ -55,6 +55,7 @@ assert "search_code.py installed"                          "[ -f search_code.py 
 assert "watch_index.py installed"                          "[ -f watch_index.py ]"
 assert ".gitignore created"                                "[ -f .gitignore ]"
 assert ".venv-code-search/ in .gitignore"                              "grep -qxF '.venv-code-search/' .gitignore"
+assert ".venv/ in .gitignore"                              "grep -qxF '.venv/' .gitignore"
 assert "__pycache__/ in .gitignore"                        "grep -qxF '__pycache__/' .gitignore"
 assert "chroma_db/ in .gitignore"                          "grep -qxF 'chroma_db/' .gitignore"
 assert ".watch_index.log in .gitignore"                    "grep -qxF '.watch_index.log' .gitignore"

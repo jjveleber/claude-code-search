@@ -1,5 +1,6 @@
 chroma_db/
 .venv-code-search/
+.venv/
 __pycache__/
 *.pyc
 *.pyo

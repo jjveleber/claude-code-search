@@ -243,7 +243,7 @@ done
 
 # Step 6: Update .gitignore
 if [ ! -f ".gitignore" ]; then
-    printf ".venv-code-search/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.code-search-version\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
+    printf ".venv-code-search/\n.venv/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.code-search-version\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
     echo "Created .gitignore"
 else
     if ! grep -qxF "chroma_db/" .gitignore; then
@@ -252,7 +252,7 @@ else
     else
         echo "chroma_db/ already in .gitignore"
     fi
-    for WATCH_IGNORE in ".venv-code-search/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".search_server.pid" ".code-search-version" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
+    for WATCH_IGNORE in ".venv-code-search/" ".venv/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".search_server.pid" ".code-search-version" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
         if ! grep -qxF "$WATCH_IGNORE" .gitignore; then
             printf "\n%s\n" "$WATCH_IGNORE" >> .gitignore
             echo "Added $WATCH_IGNORE to .gitignore"
