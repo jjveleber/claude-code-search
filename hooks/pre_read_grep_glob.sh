@@ -7,6 +7,12 @@ SEARCH_STATE_TTL=${SEARCH_STATE_TTL:-300}        # 5 minutes
 RECENT_PATH_TTL=${RECENT_PATH_TTL:-600}          # 10 minutes
 SEARCH_WARNINGS_VISIBLE=${SEARCH_WARNINGS_VISIBLE:-false}
 
+# Debug logging
+LOG_DIR="logs"
+mkdir -p "$LOG_DIR"
+DEBUG_LOG="$LOG_DIR/hook_debug.log"
+echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") | HOOK CALLED | TOOL_NAME=$TOOL_NAME | TOOL_PARAMS=$TOOL_PARAMS" >> "$DEBUG_LOG"
+
 # Extract file path from tool invocation
 FILE_PATH=""
 if [[ "$TOOL_NAME" == "Read" ]]; then
@@ -25,6 +31,8 @@ elif [[ "$TOOL_NAME" == "Glob" ]]; then
         FILE_PATH="${BASH_REMATCH[1]}"
     fi
 fi
+
+echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") | FILE_PATH=$FILE_PATH" >> "$DEBUG_LOG"
 
 [[ -z "$FILE_PATH" ]] && exit 0  # Can't determine path, skip
 
@@ -49,6 +57,7 @@ done
 if [[ -f "$FILE_PATH" ]] && [[ "$TOOL_NAME" == "Read" ]]; then
     LINE_COUNT=$(wc -l < "$FILE_PATH" 2>/dev/null || echo 999)
     if [[ $LINE_COUNT -lt 100 ]]; then
+        echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") | EXEMPTION: small file ($LINE_COUNT lines)" >> "$DEBUG_LOG"
         exit 0  # Small file, exempted
     fi
 fi
@@ -58,6 +67,7 @@ if [[ -n "$LAST_SEARCH_TIME" ]]; then
     NOW=$(date +%s)
     AGE=$((NOW - LAST_SEARCH_TIME))
     if [[ $AGE -lt $SEARCH_STATE_TTL ]]; then
+        echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") | EXEMPTION: recent search (${AGE}s ago)" >> "$DEBUG_LOG"
         exit 0  # Recent search, compliant
     fi
 fi
@@ -68,6 +78,7 @@ if [[ -n "$RECENT_READS" ]]; then
     while IFS=: read -r timestamp path; do
         AGE=$((NOW - timestamp))
         if [[ $AGE -lt $RECENT_PATH_TTL ]] && [[ "$FILE_PATH" == "$path" ]]; then
+            echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") | EXEMPTION: already read recently" >> "$DEBUG_LOG"
             exit 0  # Already read recently, skip
         fi
     done <<< "$RECENT_READS"
@@ -86,6 +97,7 @@ AGENT_ID=${CLAUDE_AGENT_ID:-main}
 AGENT_DEPTH=${CLAUDE_AGENT_DEPTH:-0}
 
 echo "$TIMESTAMP | VIOLATION | tool=$TOOL_NAME | path=$FILE_PATH | session=$SESSION | model=$MODEL | skill=$SKILL | agent_depth=$AGENT_DEPTH" >> "$LOG_FILE"
+echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") | VIOLATION LOGGED" >> "$DEBUG_LOG"
 
 # Track this read to avoid duplicate violations
 export RECENT_READS="${RECENT_READS}${RECENT_READS:+$'\n'}$(date +%s):$FILE_PATH"

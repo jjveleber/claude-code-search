@@ -31,3 +31,4 @@ eval/results/*.log
 # Search usage tracking logs
 logs/search_usage.jsonl
 logs/search_warnings.log
+logs/hook_debug.log
