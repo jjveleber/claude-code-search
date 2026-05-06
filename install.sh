@@ -1,8 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Auto-detected install source (set during release via GitHub Actions)
+# Empty = main branch, "v1.0.0" = release version
+INSTALL_VERSION=""
+
+# Determine installation source with priority: env var > embedded > default
+if [ -n "${CODE_SEARCH_VERSION:-}" ]; then
+    # Explicit version override
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$CODE_SEARCH_VERSION"
+elif [ -n "${CODE_SEARCH_BRANCH:-}" ]; then
+    # Explicit branch override
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="$CODE_SEARCH_BRANCH"
+elif [ -n "$INSTALL_VERSION" ]; then
+    # Embedded version from release
+    SOURCE_TYPE="version"
+    SOURCE_VALUE="$INSTALL_VERSION"
+else
+    # Default to main
+    SOURCE_TYPE="branch"
+    SOURCE_VALUE="main"
+fi
+
 REPO_OWNER="${CODE_SEARCH_OWNER:-jjveleber}"
-BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/claude-code-search/main"
+
+# Version format validation
+if [ "$SOURCE_TYPE" = "version" ] && [[ ! "$SOURCE_VALUE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid version '$SOURCE_VALUE' (expected format: v1.0.0)" >&2
+    exit 1
+fi
+
+# Construct BASE_URL based on source type
+BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/claude-code-search/${SOURCE_VALUE}"
+
+# Test URL reachability before proceeding (skip if using local files)
+if [ -z "${CODE_SEARCH_LOCAL:-}" ]; then
+    if ! curl -fsSL --head "$BASE_URL/search_code.py" >/dev/null 2>&1; then
+        echo "Error: Cannot access $SOURCE_TYPE '$SOURCE_VALUE'" >&2
+        echo "  URL: $BASE_URL" >&2
+        echo "  Check that the $SOURCE_TYPE exists and is accessible" >&2
+        exit 1
+    fi
+fi
 
 # Step 1: Check Python version
 # TODO: determine the full supported range (floor and ceiling) for torch/transformers compatibility.
@@ -202,7 +243,7 @@ done
 
 # Step 6: Update .gitignore
 if [ ! -f ".gitignore" ]; then
-    printf ".venv-code-search/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
+    printf ".venv-code-search/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.code-search-version\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
     echo "Created .gitignore"
 else
     if ! grep -qxF "chroma_db/" .gitignore; then
@@ -211,7 +252,7 @@ else
     else
         echo "chroma_db/ already in .gitignore"
     fi
-    for WATCH_IGNORE in ".venv-code-search/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".search_server.pid" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
+    for WATCH_IGNORE in ".venv-code-search/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".search_server.pid" ".code-search-version" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
         if ! grep -qxF "$WATCH_IGNORE" .gitignore; then
             printf "\n%s\n" "$WATCH_IGNORE" >> .gitignore
             echo "Added $WATCH_IGNORE to .gitignore"
@@ -437,6 +478,14 @@ print("Hooks installed successfully")
 PYTHON_EOF
 
 echo "Hooks installed. Run 'python3 tools/analyze_search_usage.py' to view analytics."
+
+# Step 11: Record installation version/branch
+cat > .code-search-version <<EOF
+SOURCE_TYPE=$SOURCE_TYPE
+SOURCE_VALUE=$SOURCE_VALUE
+INSTALL_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+EOF
+
 
 echo ""
 echo "code-search installed successfully"
