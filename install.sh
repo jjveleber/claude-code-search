@@ -228,7 +228,7 @@ done
 
 # Step 6: Update .gitignore
 if [ ! -f ".gitignore" ]; then
-    printf ".venv/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
+    printf ".venv/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.code-search-version\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
     echo "Created .gitignore"
 else
     if ! grep -qxF "chroma_db/" .gitignore; then
@@ -237,7 +237,7 @@ else
     else
         echo "chroma_db/ already in .gitignore"
     fi
-    for WATCH_IGNORE in ".venv/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".search_server.pid" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
+    for WATCH_IGNORE in ".venv/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".search_server.pid" ".code-search-version" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
         if ! grep -qxF "$WATCH_IGNORE" .gitignore; then
             printf "\n%s\n" "$WATCH_IGNORE" >> .gitignore
             echo "Added $WATCH_IGNORE to .gitignore"
@@ -460,6 +460,13 @@ print("Hooks installed successfully")
 PYTHON_EOF
 
 echo "Hooks installed. Run 'python3 tools/analyze_search_usage.py' to view analytics."
+
+# Step 11: Record installation version/branch
+cat > .code-search-version <<EOF
+SOURCE_TYPE=$SOURCE_TYPE
+SOURCE_VALUE=$SOURCE_VALUE
+INSTALL_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+EOF
 
 echo ""
 echo "code-search installed successfully"

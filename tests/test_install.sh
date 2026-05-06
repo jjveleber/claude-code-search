@@ -598,6 +598,17 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+echo "=== Test 23: Version tracking file creation ==="
+setup
+git init -q
+git commit -q --allow-empty -m "init"
+CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh" >/dev/null 2>&1
+assert ".code-search-version created"                      "[ -f .code-search-version ]"
+assert ".code-search-version in .gitignore"                "grep -qxF '.code-search-version' .gitignore"
+assert "Contains SOURCE_TYPE=branch"                       "grep -q 'SOURCE_TYPE=branch' .code-search-version"
+assert "Contains SOURCE_VALUE=main"                        "grep -q 'SOURCE_VALUE=main' .code-search-version"
+assert "Contains INSTALL_DATE"                             "grep -q 'INSTALL_DATE=' .code-search-version"
+assert "search_code.py --version works"                    ".venv/bin/python3 search_code.py --version | grep -q 'SOURCE_TYPE=branch'"
 teardown
 
 echo ""
