@@ -54,6 +54,7 @@ assert "index_project.py installed"                        "[ -f index_project.p
 assert "search_code.py installed"                          "[ -f search_code.py ]"
 assert "watch_index.py installed"                          "[ -f watch_index.py ]"
 assert ".gitignore created"                                "[ -f .gitignore ]"
+assert ".venv-code-search/ in .gitignore"                              "grep -qxF '.venv-code-search/' .gitignore"
 assert ".venv/ in .gitignore"                              "grep -qxF '.venv/' .gitignore"
 assert "__pycache__/ in .gitignore"                        "grep -qxF '__pycache__/' .gitignore"
 assert "chroma_db/ in .gitignore"                          "grep -qxF 'chroma_db/' .gitignore"
@@ -61,12 +62,12 @@ assert ".watch_index.log in .gitignore"                    "grep -qxF '.watch_in
 assert ".watch_index.pid in .gitignore"                    "grep -qxF '.watch_index.pid' .gitignore"
 assert ".claude/settings.local.json in .gitignore"         "grep -qxF '.claude/settings.local.json' .gitignore"
 assert ".claude/CLAUDE.md in .gitignore"                   "grep -qxF '.claude/CLAUDE.md' .gitignore"
-assert "venv created"                                      "[ -d .venv ]"
+assert "venv created"                                      "[ -d .venv-code-search ]"
 assert "chroma_db index built"                             "[ -d chroma_db ]"
 assert ".claude/CLAUDE.md created"                         "[ -f .claude/CLAUDE.md ]"
 assert "Precision Protocol in .claude/CLAUDE.md"           "grep -q 'code-search:start' .claude/CLAUDE.md"
-assert ".claude/CLAUDE.md search command uses .venv/bin/python3" \
-    "grep -q '.venv/bin/python3 search_code.py' .claude/CLAUDE.md"
+assert ".claude/CLAUDE.md search command uses .venv-code-search/bin/python3" \
+    "grep -q '.venv-code-search/bin/python3 search_code.py' .claude/CLAUDE.md"
 assert ".claude/CLAUDE.md does not start with blank line"  "[ \"\$(head -c1 .claude/CLAUDE.md)\" != $'\n' ]"
 assert "auto-watcher hook in .claude/settings.local.json"  "[ -f .claude/settings.local.json ] && grep -q 'watch_index.py' .claude/settings.local.json"
 assert "hook NOT in .claude/settings.json"                 "! ([ -f .claude/settings.json ] && grep -q 'watch_index.py' .claude/settings.json)"
@@ -83,8 +84,8 @@ CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
 SENTINEL_COUNT=$(grep -c "code-search:start" .claude/CLAUDE.md)
 assert "Precision Protocol appears exactly once in .claude/CLAUDE.md" "[ '$SENTINEL_COUNT' = '1' ]"
-VENV_COUNT=$(grep -c ".venv/" .gitignore)
-assert ".venv/ appears exactly once in .gitignore" "[ '$VENV_COUNT' = '1' ]"
+VENV_COUNT=$(grep -c ".venv-code-search/" .gitignore)
+assert ".venv-code-search/ appears exactly once in .gitignore" "[ '$VENV_COUNT' = '1' ]"
 PYCACHE_COUNT=$(grep -c "__pycache__/" .gitignore)
 assert "__pycache__/ appears exactly once in .gitignore" "[ '$PYCACHE_COUNT' = '1' ]"
 GITIGNORE_COUNT=$(grep -c "chroma_db/" .gitignore)
@@ -124,19 +125,19 @@ assert "chroma_db NOT created"                 "[ ! -d chroma_db ]"
 teardown
 
 echo ""
-echo "=== Test 5: Existing .venv is reused (not recreated) ==="
+echo "=== Test 5: Existing .venv-code-search is reused (not recreated) ==="
 setup
 git init -q
 git commit -q --allow-empty -m "init"
-python3 -m venv .venv
-VENV_MTIME=$(stat -c %Y .venv 2>/dev/null || stat -f %m .venv)
+python3 -m venv .venv-code-search
+VENV_MTIME=$(stat -c %Y .venv-code-search 2>/dev/null || stat -f %m .venv-code-search)
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
-VENV_MTIME2=$(stat -c %Y .venv 2>/dev/null || stat -f %m .venv)
-assert "Existing .venv reused (mtime unchanged)" "[ '$VENV_MTIME' = '$VENV_MTIME2' ]"
+VENV_MTIME2=$(stat -c %Y .venv-code-search 2>/dev/null || stat -f %m .venv-code-search)
+assert "Existing .venv-code-search reused (mtime unchanged)" "[ '$VENV_MTIME' = '$VENV_MTIME2' ]"
 teardown
 
 echo ""
-echo "=== Test 6: VIRTUAL_ENV set but .venv exists — installer uses .venv ==="
+echo "=== Test 6: VIRTUAL_ENV set but .venv-code-search exists — installer uses .venv-code-search ==="
 setup
 git init -q
 git commit -q --allow-empty -m "init"
@@ -145,17 +146,17 @@ FAKE_VENV="$(mktemp -d)"
 python3 -m venv "$FAKE_VENV" 2>/dev/null || python3 -m venv "$FAKE_VENV"
 VIRTUAL_ENV="$FAKE_VENV"
 export VIRTUAL_ENV
-# Create .venv before running install.sh
-python3 -m venv .venv 2>/dev/null || python3 -m venv .venv
+# Create .venv-code-search before running install.sh
+python3 -m venv .venv-code-search 2>/dev/null || python3 -m venv .venv-code-search
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
-assert "chromadb installed in .venv (not foreign venv)" "[ -d .venv/lib ] && .venv/bin/python3 -c 'import chromadb' 2>/dev/null"
-assert ".claude/CLAUDE.md uses .venv not foreign path"  "! grep -q '$FAKE_VENV' .claude/CLAUDE.md"
+assert "chromadb installed in .venv-code-search (not foreign venv)" "[ -d .venv-code-search/lib ] && .venv-code-search/bin/python3 -c 'import chromadb' 2>/dev/null"
+assert ".claude/CLAUDE.md uses .venv-code-search not foreign path"  "! grep -q '$FAKE_VENV' .claude/CLAUDE.md"
 unset VIRTUAL_ENV
 rm -rf "$FAKE_VENV"
 teardown
 
 echo ""
-echo "=== Test 7: VIRTUAL_ENV set, no .venv — installer creates .venv (ignores VIRTUAL_ENV) ==="
+echo "=== Test 7: VIRTUAL_ENV set, no .venv-code-search — installer creates .venv-code-search (ignores VIRTUAL_ENV) ==="
 setup
 git init -q
 git commit -q --allow-empty -m "init"
@@ -164,8 +165,8 @@ python3 -m venv "$FAKE_VENV" --without-pip 2>/dev/null || python3 -m venv "$FAKE
 VIRTUAL_ENV="$FAKE_VENV"
 export VIRTUAL_ENV
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
-assert "project .venv created (VIRTUAL_ENV ignored)"     "[ -d .venv ]"
-assert ".claude/CLAUDE.md uses .venv not VIRTUAL_ENV path" "! grep -q '$FAKE_VENV' .claude/CLAUDE.md"
+assert "project .venv-code-search created (VIRTUAL_ENV ignored)"     "[ -d .venv-code-search ]"
+assert ".claude/CLAUDE.md uses .venv-code-search not VIRTUAL_ENV path" "! grep -q '$FAKE_VENV' .claude/CLAUDE.md"
 unset VIRTUAL_ENV
 rm -rf "$FAKE_VENV"
 teardown
@@ -189,10 +190,10 @@ setup
 git init -q
 git commit -q --allow-empty -m "init"
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
-assert ".claude/CLAUDE.md search command uses .venv/bin/python3" \
-    "grep -q '.venv/bin/python3 search_code.py' .claude/CLAUDE.md"
+assert ".claude/CLAUDE.md search command uses .venv-code-search/bin/python3" \
+    "grep -q '.venv-code-search/bin/python3 search_code.py' .claude/CLAUDE.md"
 assert ".claude/CLAUDE.md search command does not misuse 'source' as a path prefix" \
-    "! grep -q 'source .venv/bin/python3' .claude/CLAUDE.md"
+    "! grep -q 'source .venv-code-search/bin/python3' .claude/CLAUDE.md"
 teardown
 
 echo ""
@@ -227,9 +228,11 @@ git init -q
 git commit -q --allow-empty -m "init"
 # Simulate old install with PostToolUse hook in settings.local.json
 mkdir -p .claude
-printf '{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":".venv/bin/python3 index_project.py"}]}]}}\n' > .claude/settings.local.json
+printf '{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":".venv-code-search/bin/python3 index_project.py"}]}]}}\n' > .claude/settings.local.json
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
-assert "PostToolUse hook removed from settings.local.json"  "! grep -q 'PostToolUse' .claude/settings.local.json"
+assert "Legacy PostToolUse hook (matcher:Edit) removed"  "! grep -q 'matcher.*Edit' .claude/settings.local.json"
+assert "Legacy PostToolUse hook (index_project.py) removed"  "! grep -q 'Edit.*index_project.py' .claude/settings.local.json"
+assert "New PostToolUse hook (search tracking) added"    "grep -q 'search_code.py' .claude/settings.local.json"
 assert "UserPromptSubmit hook added to settings.local.json" "grep -q 'watch_index.py' .claude/settings.local.json"
 assert "hook NOT written to settings.json"                  "! ([ -f .claude/settings.json ] && grep -q 'watch_index.py' .claude/settings.json)"
 teardown
@@ -243,7 +246,7 @@ git commit -q --allow-empty -m "init"
 mkdir -p .claude
 python3 -c "
 import json, pathlib
-hook = 'if [ -f \"watch_index.py\" ] && [ -f \".venv/bin/python3\" ]; then   .venv/bin/python3 index_project.py >> .watch_index.log 2>&1 &   .venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 & fi'
+hook = 'if [ -f \"watch_index.py\" ] && [ -f \".venv-code-search/bin/python3\" ]; then   .venv-code-search/bin/python3 index_project.py >> .watch_index.log 2>&1 &   .venv-code-search/bin/python3 watch_index.py >> .watch_index.log 2>&1 & fi'
 pathlib.Path('.claude/settings.json').write_text(json.dumps({'hooks':{'UserPromptSubmit':[{'hooks':[{'type':'command','command':hook}]}]}}) + '\n')
 "
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
@@ -259,7 +262,7 @@ git commit -q --allow-empty -m "init"
 # Simulate old install with Precision Protocol in CLAUDE.md and PostToolUse hook
 printf "<!-- code-search:start -->\n## Precision Protocol\n<!-- code-search:end -->\n\n<!-- code-search-watch:start -->\n## Session Startup\n1. Run index_project.py\n<!-- code-search-watch:end -->\n" > CLAUDE.md
 mkdir -p .claude
-printf '{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":".venv/bin/python3 index_project.py"}]}]}}\n' > .claude/settings.local.json
+printf '{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":".venv-code-search/bin/python3 index_project.py"}]}]}}\n' > .claude/settings.local.json
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
 CODE_SEARCH_LOCAL="$REPO_ROOT" bash "$REPO_ROOT/install.sh"
 assert "Session Startup still absent after second run"             "! grep -q 'Session Startup' CLAUDE.md"

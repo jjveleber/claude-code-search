@@ -62,23 +62,23 @@ if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
     echo "Warning: Not a git repo — skipping index build. Run 'python3 index_project.py' manually after initializing git."
 fi
 
-# Step 3: Detect or create venv
-# Priority: project .venv > create new .venv
+# Step 3: Detect or create isolated venv for code-search
+# Uses .venv-code-search to avoid conflicts with project's .venv
 # VIRTUAL_ENV is intentionally ignored — using a foreign venv would make
-# the .venv/bin/activate instructions in .claude/CLAUDE.md incorrect.
+# the .venv-code-search/bin/activate instructions in .claude/CLAUDE.md incorrect.
 VENV_EXISTED=false
-if [ -d ".venv" ]; then
-    VENV_PATH="$(pwd)/.venv"
+if [ -d ".venv-code-search" ]; then
+    VENV_PATH="$(pwd)/.venv-code-search"
     VENV_EXISTED=true
 else
-    echo "Creating .venv..."
-    python3 -m venv .venv
-    VENV_PATH="$(pwd)/.venv"
+    echo "Creating .venv-code-search..."
+    python3 -m venv .venv-code-search
+    VENV_PATH="$(pwd)/.venv-code-search"
 fi
 echo "Using venv: $VENV_PATH"
 
 # Save a reference file for mtime restoration when reusing an existing venv.
-# pip may create new subdirs in .venv/ (e.g. share/) which would change its mtime
+# pip may create new subdirs in .venv-code-search/ (e.g. share/) which would change its mtime
 # even though the venv was not recreated. touch -r is POSIX-portable (GNU + BSD).
 _VENV_MTIME_REF=""
 _CS_TMPFILES=()
@@ -176,6 +176,7 @@ fi
   "sentence-transformers>=3.0" \
   "einops>=0.7" \
   "psutil>=5.9" \
+  "tree-sitter<0.22" \
   "tree-sitter-languages>=1.10" \
   "rank_bm25>=0.2.2"
 
@@ -226,9 +227,23 @@ for i in "${!_CS_FILES[@]}"; do
     fi
 done
 
+# Step 5b: Install hook scripts
+mkdir -p hooks
+for HOOK in post_search_code.sh pre_read_grep_glob.sh; do
+    if [ -n "${CODE_SEARCH_LOCAL:-}" ]; then
+        cp "${CODE_SEARCH_LOCAL}/hooks/$HOOK" "hooks/$HOOK"
+    else
+        curl -fsSL "$BASE_URL/hooks/$HOOK" -o "hooks/$HOOK"
+    fi
+    chmod +x "hooks/$HOOK"
+    if [ -f "hooks/$HOOK" ]; then
+        echo "Installed hooks/$HOOK"
+    fi
+done
+
 # Step 6: Update .gitignore
 if [ ! -f ".gitignore" ]; then
-    printf ".venv/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.code-search-version\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
+    printf ".venv-code-search/\n.venv/\n__pycache__/\nchroma_db/\n.watch_index.log\n.watch_index.pid\n.search_server.pid\n.code-search-version\n.claude/settings.local.json\n.claude/CLAUDE.md\n" > .gitignore
     echo "Created .gitignore"
 else
     if ! grep -qxF "chroma_db/" .gitignore; then
@@ -237,7 +252,7 @@ else
     else
         echo "chroma_db/ already in .gitignore"
     fi
-    for WATCH_IGNORE in ".venv/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".search_server.pid" ".code-search-version" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
+    for WATCH_IGNORE in ".venv-code-search/" ".venv/" "__pycache__/" ".watch_index.log" ".watch_index.pid" ".search_server.pid" ".code-search-version" ".claude/settings.local.json" ".claude/CLAUDE.md"; do
         if ! grep -qxF "$WATCH_IGNORE" .gitignore; then
             printf "\n%s\n" "$WATCH_IGNORE" >> .gitignore
             echo "Added $WATCH_IGNORE to .gitignore"
@@ -253,11 +268,11 @@ SENTINEL="<!-- code-search:start -->"
 CLAUDE_BLOCK="<!-- code-search:start -->
 ## Precision Protocol
 
-**Rule:** Before using \`Read\`, \`Grep\`, or \`Glob\` — if the exact file path was not given to you in the current task, run \`.venv/bin/python3 search_code.py \"<query>\"\` first.
+**Rule:** Before using \`Read\`, \`Grep\`, or \`Glob\` — if the exact file path was not given to you in the current task, run \`.venv-code-search/bin/python3 search_code.py \"<query>\"\` first.
 
 1. **File path given in task?**
    - **Yes** → go to step 2
-   - **No** → run \`.venv/bin/python3 search_code.py \"<query>\"\`, then go to step 2
+   - **No** → run \`.venv-code-search/bin/python3 search_code.py \"<query>\"\`, then go to step 2
 2. **Grep** the exact location, then **Read** to confirm context.
 3. If wrong spot, refine and repeat from step 2.
 4. **Edit** only after verified.
@@ -269,7 +284,7 @@ CLAUDE_BLOCK="<!-- code-search:start -->
 - If the user's task is explicitly about tests, say so in the query (\"find the test for X\")
 - Use \`--all\` to include documentation and generated files when explicitly needed
 
-**Environment:** Always activate the virtual environment via \`source .venv/bin/activate\` before running project scripts.
+**Environment:** Always activate the virtual environment via \`source .venv-code-search/bin/activate\` before running project scripts.
 <!-- code-search:end -->"
 
 if [ ! -f ".claude/CLAUDE.md" ]; then
@@ -313,9 +328,9 @@ python3 - <<'PYEOF'
 import json, pathlib
 
 hook_cmd = (
-    'if [ -f "watch_index.py" ] && [ -f ".venv/bin/python3" ]; then '
-    '  .venv/bin/python3 index_project.py >> .watch_index.log 2>&1 & '
-    '  .venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 & '
+    'if [ -f "watch_index.py" ] && [ -f ".venv-code-search/bin/python3" ]; then '
+    '  .venv-code-search/bin/python3 index_project.py >> .watch_index.log 2>&1 & '
+    '  .venv-code-search/bin/python3 watch_index.py >> .watch_index.log 2>&1 & '
     'fi'
 )
 
@@ -347,8 +362,7 @@ if shared_p.exists():
 local_p = pathlib.Path(".claude/settings.local.json")
 local_settings = json.loads(local_p.read_text()) if local_p.exists() else {}
 
-hooks = local_settings.setdefault("hooks", {})
-prompt_hooks = hooks.setdefault("UserPromptSubmit", [])
+prompt_hooks = local_settings.setdefault("UserPromptSubmit", [])
 
 already_present = any(
     h.get("command") == hook_cmd
@@ -356,17 +370,32 @@ already_present = any(
     for h in group.get("hooks", [])
 )
 
-# Migrate: remove legacy PostToolUse hook from settings.local.json
-post_hooks = local_settings.get("hooks", {}).get("PostToolUse", [])
-filtered_post = [
-    g for g in post_hooks
-    if not any("index_project.py" in h.get("command", "") for h in g.get("hooks", []))
-]
-if len(filtered_post) < len(post_hooks):
-    local_settings["hooks"]["PostToolUse"] = filtered_post
-    if not local_settings["hooks"]["PostToolUse"]:
-        del local_settings["hooks"]["PostToolUse"]
-    print("Removed legacy PostToolUse hook from .claude/settings.local.json")
+# Migrate: remove legacy PostToolUse hook from settings.local.json (check both old and new locations)
+for hook_path in [("hooks", "PostToolUse"), ("PostToolUse",)]:
+    if len(hook_path) == 2:
+        post_hooks = local_settings.get(hook_path[0], {}).get(hook_path[1], [])
+    else:
+        post_hooks = local_settings.get(hook_path[0], [])
+
+    filtered_post = [
+        g for g in post_hooks
+        if not any("index_project.py" in h.get("command", "") for h in g.get("hooks", []))
+    ]
+
+    if len(filtered_post) < len(post_hooks):
+        if len(hook_path) == 2:
+            if "hooks" not in local_settings:
+                local_settings["hooks"] = {}
+            local_settings["hooks"]["PostToolUse"] = filtered_post
+            if not local_settings["hooks"]["PostToolUse"]:
+                del local_settings["hooks"]["PostToolUse"]
+            if not local_settings.get("hooks"):
+                del local_settings["hooks"]
+        else:
+            local_settings["PostToolUse"] = filtered_post
+            if not local_settings["PostToolUse"]:
+                del local_settings["PostToolUse"]
+        print("Removed legacy PostToolUse hook from .claude/settings.local.json")
 
 if not already_present:
     prompt_hooks.append({"hooks": [{"type": "command", "command": hook_cmd}]})
@@ -400,51 +429,56 @@ if [ "$IS_GIT_REPO" = true ]; then
     fi
 fi
 
-# Step 10: Install search usage tracking hooks
+# Step 10: Install search usage tracking hooks to .claude/settings.local.json
 echo "Installing search usage tracking hooks..."
 
-SETTINGS_FILE="$HOME/.claude/settings.json"
+SETTINGS_FILE=".claude/settings.local.json"
 HOOKS_DIR="$(pwd)/hooks"
 
-# Backup existing settings
-if [[ -f "$SETTINGS_FILE" ]]; then
-    cp "$SETTINGS_FILE" "$SETTINGS_FILE.backup-$(date +%s)"
-fi
+# Create directory if needed
+mkdir -p .claude
 
 # Create settings file if it doesn't exist
-mkdir -p "$(dirname "$SETTINGS_FILE")"
 if [[ ! -f "$SETTINGS_FILE" ]]; then
     echo '{}' > "$SETTINGS_FILE"
 fi
 
-# Update settings.json with hooks (use Python for JSON manipulation)
+# Update settings.local.json with hooks (use Python for JSON manipulation)
 HOOKS_DIR="$(pwd)/hooks" python3 - <<'PYTHON_EOF'
 import json
 import os
 from pathlib import Path
 
-settings_file = Path.home() / ".claude" / "settings.json"
+settings_file = Path(".claude/settings.local.json")
 settings = json.loads(settings_file.read_text())
 
 hooks_dir = os.environ.get("HOOKS_DIR", "")
 
-# Add hooks
-if "hooks" not in settings:
-    settings["hooks"] = {}
-
 # Post-tool hook for search_code.py
-post_tool = settings["hooks"].get("post_tool", [])
-search_hook = f"if [[ \"$TOOL_COMMAND\" == *search_code.py* ]]; then source {hooks_dir}/post_search_code.sh; fi"
-if search_hook not in post_tool:
-    post_tool.append(search_hook)
-settings["hooks"]["post_tool"] = post_tool
+post_tool = settings.get("PostToolUse", [])
+search_hook_cmd = f"if [[ \"$TOOL_COMMAND\" == *search_code.py* ]]; then source {hooks_dir}/post_search_code.sh; fi"
+# Check if hook already exists by comparing command
+already_exists = any(
+    hook.get("command") == search_hook_cmd
+    for group in post_tool
+    for hook in group.get("hooks", [])
+)
+if not already_exists:
+    post_tool.append({"hooks": [{"type": "command", "command": search_hook_cmd}]})
+settings["PostToolUse"] = post_tool
 
 # Pre-tool hook for Read/Grep/Glob
-pre_tool = settings["hooks"].get("pre_tool", [])
-rgg_hook = f"if [[ \"$TOOL_NAME\" == Read ]] || [[ \"$TOOL_NAME\" == Grep ]] || [[ \"$TOOL_NAME\" == Glob ]]; then source {hooks_dir}/pre_read_grep_glob.sh; fi"
-if rgg_hook not in pre_tool:
-    pre_tool.append(rgg_hook)
-settings["hooks"]["pre_tool"] = pre_tool
+pre_tool = settings.get("PreToolUse", [])
+rgg_hook_cmd = f"if [[ \"$TOOL_NAME\" == Read ]] || [[ \"$TOOL_NAME\" == Grep ]] || [[ \"$TOOL_NAME\" == Glob ]]; then source {hooks_dir}/pre_read_grep_glob.sh; fi"
+# Check if hook already exists by comparing command
+already_exists = any(
+    hook.get("command") == rgg_hook_cmd
+    for group in pre_tool
+    for hook in group.get("hooks", [])
+)
+if not already_exists:
+    pre_tool.append({"hooks": [{"type": "command", "command": rgg_hook_cmd}]})
+settings["PreToolUse"] = pre_tool
 
 # Set default config
 if "searchUsageTracking" not in settings:
@@ -468,10 +502,11 @@ SOURCE_VALUE=$SOURCE_VALUE
 INSTALL_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 EOF
 
+
 echo ""
 echo "code-search installed successfully"
 echo "  Venv:     $VENV_PATH"
-echo "  Re-index: .venv/bin/python3 index_project.py"
-echo "  Watch:    .venv/bin/python3 watch_index.py >> .watch_index.log 2>&1 &"
-echo "  Server:   .venv/bin/python3 search_server.py &   # optional: warm model for fast search"
-echo "  Search:   .venv/bin/python3 search_code.py \"<query>\""
+echo "  Re-index: .venv-code-search/bin/python3 index_project.py"
+echo "  Watch:    .venv-code-search/bin/python3 watch_index.py >> .watch_index.log 2>&1 &"
+echo "  Server:   .venv-code-search/bin/python3 search_server.py &   # optional: warm model for fast search"
+echo "  Search:   .venv-code-search/bin/python3 search_code.py \"<query>\""

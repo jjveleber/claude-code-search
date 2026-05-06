@@ -31,7 +31,7 @@ CODE_SEARCH_BRANCH=develop \
 ```
 
 This will:
-- Detect or create a `.venv` in your project and install `chromadb` and `watchdog` into it
+- Detect or create a `.venv-code-search` in your project and install `chromadb` and `watchdog` into it
 - Copy `index_project.py`, `search_code.py`, `watch_index.py`, `chunker.py`, and `search_server.py` into your project root
 - Add `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.search_server.pid`, `.claude/settings.local.json`, and `.claude/CLAUDE.md` to your `.gitignore`
 - Write the Precision Protocol block to `.claude/CLAUDE.md` (local-only, not committed)
@@ -47,7 +47,7 @@ The first index run is proportional to repo size and may take a minute or more o
 The watcher (`watch_index.py`) runs in the background during Claude sessions and re-indexes automatically whenever files change. To re-index manually:
 
 ```bash
-.venv/bin/python3 index_project.py
+.venv-code-search/bin/python3 index_project.py
 ```
 
 The indexer is incremental — only changed chunks are re-embedded, so re-runs are fast.
@@ -55,13 +55,13 @@ The indexer is incremental — only changed chunks are re-embedded, so re-runs a
 **BM25 hybrid search** is opt-in at both index and query time. Pass `--bm25` to build a keyword corpus alongside the vector index:
 
 ```bash
-.venv/bin/python3 index_project.py --bm25
+.venv-code-search/bin/python3 index_project.py --bm25
 ```
 
 Then pass `--bm25` at query time to use Reciprocal Rank Fusion to merge semantic and keyword results:
 
 ```bash
-.venv/bin/python3 search_code.py --bm25 "database connection"
+.venv-code-search/bin/python3 search_code.py --bm25 "database connection"
 ```
 
 To remove the BM25 corpus and revert to semantic-only: `index_project.py --disable-bm25`.
@@ -69,7 +69,7 @@ To remove the BM25 corpus and revert to semantic-only: `index_project.py --disab
 ## Search
 
 ```bash
-.venv/bin/python3 search_code.py "database connection"
+.venv-code-search/bin/python3 search_code.py "database connection"
 ```
 
 Returns the top 5 most relevant code chunks with file paths and line numbers.
@@ -85,7 +85,7 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 `search_server.py` is an optional background process that loads the embedding model once and serves search requests over a Unix socket. This eliminates the 3–7s cold-load penalty on every `search_code.py` call.
 
 ```bash
-.venv/bin/python3 search_server.py &
+.venv-code-search/bin/python3 search_server.py &
 ```
 
 `search_code.py` auto-detects the server socket and routes to it when available, falling back to direct execution silently. The server uses a project-specific socket in `/tmp/` and a `.search_server.pid` lock file in the project root (gitignored).
@@ -173,10 +173,10 @@ curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/i
 ```bash
 pkill -f watch_index.py || true
 pkill -f search_server.py || true
-rm -rf index_project.py search_code.py watch_index.py chunker.py search_server.py chroma_db/ .venv/ .watch_index.pid .watch_index.log .search_server.pid
+rm -rf index_project.py search_code.py watch_index.py chunker.py search_server.py chroma_db/ .venv-code-search/ .watch_index.pid .watch_index.log .search_server.pid
 ```
 
-> **Note:** Omit `.venv/` if it predated this installation (i.e. you brought your own virtual environment).
+> **Note:** Omit `.venv-code-search/` if it predated this installation (i.e. you brought your own virtual environment).
 
 Then:
 - Remove `.claude/CLAUDE.md`
