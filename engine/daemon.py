@@ -1,0 +1,326 @@
+# engine/daemon.py
+"""Multiplexed search daemon. One per CODE_SEARCH_HOME."""
+import fcntl
+import json
+import os
+import signal
+import socket
+import sys
+import threading
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+from engine import paths, registry, repoident
+from engine.repo_index import RepoIndex, clone_index, IndexMissingError
+from engine.watcher import IndexQueue, RepoWatch
+
+IDLE_EXIT_SECONDS = 600
+PRUNE_INTERVAL = 60
+LOG_ROTATE_BYTES = 10 * 1024 * 1024
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def acquire_pid_lock(pid_file: Path):
+    """flock singleton — copied pattern from watch_index.py."""
+    try:
+        fh = open(pid_file, "a")
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fh.seek(0); fh.truncate(); fh.write(str(os.getpid())); fh.flush()
+        return fh
+    except OSError:
+        try:
+            fh.close()
+        except Exception:
+            pass
+        return None
+
+
+class Daemon:
+    def __init__(self):
+        self.started = time.time()
+        self.lock = threading.Lock()          # guards watches/indexes dicts
+        self.watches = {}    # repo_id -> {"path", "sessions": set[int], "watch": RepoWatch}
+        self.indexes = {}    # repo_id -> RepoIndex
+        self.queue = IndexQueue()
+        self.model_ready = threading.Event()
+        self.model_loading = False
+        self.shutting_down = threading.Event()
+
+    # ---- model warmup ------------------------------------------------
+    def _ensure_model_async(self):
+        with self.lock:
+            if self.model_ready.is_set() or self.model_loading:
+                return
+            self.model_loading = True
+
+        def load():
+            from engine.embedding import HFCodeEmbeddingFunction
+            HFCodeEmbeddingFunction("nomic-ai/CodeRankEmbed")
+            self.model_ready.set()
+        threading.Thread(target=load, daemon=True).start()
+
+    # ---- watch table persistence --------------------------------------
+    def _persist_watches(self):
+        data = {"watches": [
+            {"repo_id": rid, "path": w["path"],
+             "sessions": sorted(w["sessions"])}
+            for rid, w in self.watches.items()]}
+        tmp = paths.watches_path().with_suffix(".tmp")
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(data))
+        os.replace(tmp, paths.watches_path())
+
+    def restore_watches(self):
+        try:
+            data = json.loads(paths.watches_path().read_text())
+        except (OSError, json.JSONDecodeError):
+            return
+        for w in data.get("watches", []):
+            live = [p for p in w["sessions"] if _pid_alive(p)]
+            if live and Path(w["path"]).exists():
+                for pid in live:
+                    self._watch(w["path"], pid)
+
+    # ---- repo helpers --------------------------------------------------
+    def _repo_index(self, rid: str, root: Path) -> RepoIndex:
+        if rid not in self.indexes:
+            self.indexes[rid] = RepoIndex(root, paths.index_dir(rid))
+        return self.indexes[rid]
+
+    def _queue_index(self, rid: str, root: Path, bm25: bool):
+        ri = self._repo_index(rid, root)
+        def job():
+            self.model_ready.wait()
+            ri.index(use_bm25=bm25)
+            ri.invalidate_caches()
+        self.queue.submit(rid, job)
+
+    # ---- commands -------------------------------------------------------
+    def cmd_ping(self, req):
+        return {"ok": True, "pid": os.getpid()}
+
+    def cmd_watch(self, req):
+        root = Path(req["repo"])
+        r = registry.resolve(root)
+        if not r.family_enabled:
+            return {"ok": False, "error": "not enabled"}
+        if not r.registered:
+            r = registry.register_worktree(root)
+            # seed from main worktree's index if it exists
+            main_idx = paths.index_dir(r.main_repo_id)
+            my_idx = paths.index_dir(r.repo_id)
+            if r.main_repo_id != r.repo_id and main_idx.exists() \
+                    and not my_idx.exists():
+                clone_index(main_idx, my_idx)
+        self._ensure_model_async()
+        pid = int(req["session_pid"])
+        resolved_root = repoident.repo_root(root)
+        with self.lock:
+            w = self.watches.get(r.repo_id)
+            if w is None:
+                watch = RepoWatch(resolved_root, on_change=lambda rid=r.repo_id,
+                                  rr=resolved_root, b=r.bm25:
+                                  self._queue_index(rid, rr, b))
+                w = {"path": str(resolved_root), "sessions": set(),
+                     "watch": watch}
+                self.watches[r.repo_id] = w
+            w["sessions"].add(pid)
+            self._persist_watches()
+        self._queue_index(r.repo_id, resolved_root, r.bm25)  # catch-up
+        return {"ok": True, "repo_id": r.repo_id}
+
+    def cmd_unwatch(self, req):
+        root = Path(req["repo"])
+        rid = repoident.repo_id(repoident.repo_root(root) or root)
+        pid = int(req["session_pid"])
+        with self.lock:
+            w = self.watches.get(rid)
+            if w:
+                w["sessions"].discard(pid)
+                if not w["sessions"]:
+                    w["watch"].stop()
+                    del self.watches[rid]
+                    ri = self.indexes.pop(rid, None)
+                    if ri:
+                        ri.close()
+                self._persist_watches()
+        return {"ok": True}
+
+    def cmd_search(self, req):
+        root = Path(req["repo"])
+        r = registry.resolve(root)
+        if not r.family_enabled or not r.registered:
+            return {"ok": False, "error": "not enabled"}
+        self._ensure_model_async()
+        if not self.model_ready.is_set():
+            return {"ok": False, "status": "warming"}
+        ri = self._repo_index(r.repo_id, repoident.repo_root(root))
+        if ri.count() == 0:
+            return {"ok": False, "status": "warming"}
+        t0 = time.time()
+        try:
+            results = ri.search(
+                req["query"], n_results=req.get("n_results", 5),
+                all_files=req.get("all_files", False),
+                use_bm25=req.get("use_bm25", False))
+        except IndexMissingError:
+            return {"ok": False, "status": "warming"}
+        self._log_search(r.repo_id, req, results, time.time() - t0)
+        return {"ok": True, "results": results}
+
+    def cmd_reindex(self, req):
+        root = Path(req["repo"])
+        r = registry.resolve(root)
+        if not r.registered:
+            return {"ok": False, "error": "not enabled"}
+        self._ensure_model_async()
+        self._queue_index(r.repo_id, repoident.repo_root(root), r.bm25)
+        return {"ok": True}
+
+    def cmd_status(self, req):
+        with self.lock:
+            watched = {rid: {"path": w["path"],
+                             "sessions": sorted(w["sessions"])}
+                       for rid, w in self.watches.items()}
+        return {"ok": True, "watched": watched,
+                "uptime_s": int(time.time() - self.started)}
+
+    # ---- logging --------------------------------------------------------
+    def _log_search(self, rid, req, results, secs):
+        log = paths.logs_dir() / "search_usage.jsonl"
+        try:
+            log.parent.mkdir(parents=True, exist_ok=True)
+            if log.exists() and log.stat().st_size > LOG_ROTATE_BYTES:
+                os.replace(log, log.with_suffix(".jsonl.1"))
+            event = {"timestamp": datetime.now(timezone.utc).isoformat(),
+                     "event_type": "search", "repo_id": rid,
+                     "query": req["query"],
+                     "result_count": len(results),
+                     "latency_ms": int(secs * 1000),
+                     "use_bm25": req.get("use_bm25", False),
+                     "session_id": req.get("session_id", "unknown")}
+            with log.open("a") as f:
+                f.write(json.dumps(event) + "\n")
+        except Exception:
+            pass
+
+    # ---- housekeeping -----------------------------------------------------
+    def prune_loop(self):
+        idle_since = time.time()
+        while not self.shutting_down.wait(PRUNE_INTERVAL):
+            with self.lock:
+                for rid in list(self.watches):
+                    w = self.watches[rid]
+                    w["sessions"] = {p for p in w["sessions"] if _pid_alive(p)}
+                    if not w["sessions"]:
+                        w["watch"].stop()
+                        del self.watches[rid]
+                        ri = self.indexes.pop(rid, None)
+                        if ri:
+                            ri.close()
+                self._persist_watches()
+                empty = not self.watches
+            if empty:
+                if time.time() - idle_since > IDLE_EXIT_SECONDS:
+                    self.shutting_down.set()
+            else:
+                idle_since = time.time()
+
+    # ---- request dispatch --------------------------------------------------
+    def handle(self, req: dict) -> dict:
+        cmd = req.get("cmd")
+        fn = getattr(self, f"cmd_{cmd}", None)
+        if cmd == "shutdown":
+            self.shutting_down.set()
+            return {"ok": True}
+        if fn is None:
+            return {"ok": False, "error": f"unknown cmd: {cmd}"}
+        try:
+            return fn(req)
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _serve(daemon: Daemon, srv: socket.socket):
+    srv.settimeout(1.0)
+    while not daemon.shutting_down.is_set():
+        try:
+            conn, _ = srv.accept()
+        except socket.timeout:
+            continue
+        threading.Thread(target=_handle_conn, args=(daemon, conn),
+                         daemon=True).start()
+
+
+def _handle_conn(daemon, conn):
+    with conn:
+        conn.settimeout(30.0)
+        buf = b""
+        try:
+            while b"\n" not in buf:
+                chunk = conn.recv(65536)
+                if not chunk:
+                    return
+                buf += chunk
+            req = json.loads(buf.split(b"\n")[0])
+            resp = daemon.handle(req)
+            conn.sendall(json.dumps(resp).encode() + b"\n")
+        except (OSError, json.JSONDecodeError):
+            pass
+
+
+def main():
+    paths.ensure_home()
+    lock_fh = acquire_pid_lock(paths.pid_path())
+    if lock_fh is None:
+        sys.exit(0)   # another daemon holds the lock; never touch its socket
+
+    daemon = Daemon()
+    sock_final = paths.socket_path()
+    sock_tmp = sock_final.with_suffix(f".tmp{os.getpid()}")
+    for p in (sock_tmp,):
+        try:
+            os.unlink(p)
+        except FileNotFoundError:
+            pass
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(sock_tmp))
+    srv.listen(64)
+    os.rename(sock_tmp, sock_final)   # atomic claim — no unlink-before-bind race
+
+    def _term(signum=None, frame=None):
+        daemon.shutting_down.set()
+    signal.signal(signal.SIGTERM, _term)
+    signal.signal(signal.SIGINT, _term)
+
+    daemon.restore_watches()
+    pruner = threading.Thread(target=daemon.prune_loop, daemon=True)
+    pruner.start()
+
+    _serve(daemon, srv)
+
+    # shutdown order: unlink socket -> stop watches -> persist -> release lock
+    try:
+        os.unlink(sock_final)
+    except FileNotFoundError:
+        pass
+    with daemon.lock:
+        for w in daemon.watches.values():
+            w["watch"].stop()
+        daemon._persist_watches()
+    daemon.queue.stop()
+    lock_fh.close()
+
+
+if __name__ == "__main__":
+    main()
