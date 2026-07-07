@@ -95,3 +95,42 @@ def test_singleton_second_daemon_exits(daemon, tmp_path):
     p2 = subprocess.Popen([sys.executable, "-m", "engine.daemon"], env=env)
     assert p2.wait(timeout=15) == 0  # loser exits cleanly, does NOT touch socket
     assert _req({"cmd": "ping"})["ok"]  # original still serving
+
+
+def test_restore_watches_on_startup(monkeypatch, tmp_path):
+    """A pre-existing watches.json with a live pid must be restored, not crash
+    the daemon (regression: restore_watches used to call a nonexistent
+    self._watch(path, pid))."""
+    from engine import registry
+
+    home = tmp_path / "csh"
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(home))
+    repo = make_repo(tmp_path)
+    r = registry.enable(repo)
+
+    watches_file = paths.watches_path()
+    watches_file.parent.mkdir(parents=True, exist_ok=True)
+    watches_file.write_text(json.dumps({"watches": [
+        {"repo_id": r.repo_id, "path": str(repo.resolve()),
+         "sessions": [os.getpid()]}]}))
+
+    env = dict(os.environ, CODE_SEARCH_HOME=str(home),
+               PYTHONPATH=str(Path(__file__).resolve().parents[2]))
+    proc = subprocess.Popen([sys.executable, "-m", "engine.daemon"], env=env)
+    try:
+        deadline = time.time() + 30
+        while not paths.socket_path().exists():
+            assert time.time() < deadline, "daemon socket never appeared"
+            assert proc.poll() is None, "daemon died on startup"
+            time.sleep(0.2)
+
+        st = _req({"cmd": "status"})
+        assert st["ok"]
+        assert r.repo_id in st["watched"]
+        assert st["watched"][r.repo_id]["path"] == str(repo.resolve())
+    finally:
+        try:
+            _req({"cmd": "shutdown"}, timeout=10)
+        except OSError:
+            pass
+        proc.wait(timeout=15)

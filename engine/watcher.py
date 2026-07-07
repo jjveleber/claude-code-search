@@ -84,6 +84,10 @@ class IndexQueue:
         self._q.put(self._stop)
         self._worker.join(timeout=10)
 
+    def pending(self):
+        with self._lock:
+            return sorted(self._pending)
+
 
 class _Handler(FileSystemEventHandler):
     def __init__(self, watch):

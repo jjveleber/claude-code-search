@@ -64,9 +64,14 @@ class Daemon:
             self.model_loading = True
 
         def load():
-            from engine.embedding import HFCodeEmbeddingFunction
-            HFCodeEmbeddingFunction("nomic-ai/CodeRankEmbed")
-            self.model_ready.set()
+            try:
+                from engine.embedding import HFCodeEmbeddingFunction
+                HFCodeEmbeddingFunction("nomic-ai/CodeRankEmbed")
+                self.model_ready.set()
+            except Exception as e:
+                with self.lock:
+                    self.model_loading = False
+                print(f"[model-load] {type(e).__name__}: {e}", flush=True)
         threading.Thread(target=load, daemon=True).start()
 
     # ---- watch table persistence --------------------------------------
@@ -89,13 +94,18 @@ class Daemon:
             live = [p for p in w["sessions"] if _pid_alive(p)]
             if live and Path(w["path"]).exists():
                 for pid in live:
-                    self._watch(w["path"], pid)
+                    try:
+                        self.cmd_watch({"repo": w["path"], "session_pid": pid})
+                    except Exception as e:
+                        print(f"[restore_watches] {w['path']}: "
+                              f"{type(e).__name__}: {e}", flush=True)
 
     # ---- repo helpers --------------------------------------------------
     def _repo_index(self, rid: str, root: Path) -> RepoIndex:
-        if rid not in self.indexes:
-            self.indexes[rid] = RepoIndex(root, paths.index_dir(rid))
-        return self.indexes[rid]
+        with self.lock:
+            if rid not in self.indexes:
+                self.indexes[rid] = RepoIndex(root, paths.index_dir(rid))
+            return self.indexes[rid]
 
     def _queue_index(self, rid: str, root: Path, bm25: bool):
         ri = self._repo_index(rid, root)
@@ -193,7 +203,8 @@ class Daemon:
                              "sessions": sorted(w["sessions"])}
                        for rid, w in self.watches.items()}
         return {"ok": True, "watched": watched,
-                "uptime_s": int(time.time() - self.started)}
+                "uptime_s": int(time.time() - self.started),
+                "queue_pending": self.queue.pending()}
 
     # ---- logging --------------------------------------------------------
     def _log_search(self, rid, req, results, secs):
