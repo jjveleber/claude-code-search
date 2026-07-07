@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 from pathlib import Path
 import pytest
 from engine import migrate, paths
@@ -90,3 +92,58 @@ def test_dry_run_changes_nothing(tmp_path):
     assert report["evidence"] and report["trashed"]
     assert (repo / "search_code.py").exists()
     assert (repo / "chroma_db").exists()
+
+
+def test_git_error_fails_closed(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path)
+    old_install(repo)
+
+    real_run = subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[:2] == ["git", "-C"] and "ls-files" in cmd:
+            return subprocess.CompletedProcess(cmd, returncode=128,
+                                                stdout="", stderr="fatal: error")
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(migrate.subprocess, "run", fake_run)
+    migrate.migrate(repo)
+    # git status couldn't be determined -> treated as tracked -> never trashed
+    assert (repo / "search_code.py").exists()
+
+
+def test_trash_collision_preserves_prior_trash(tmp_path):
+    repo = make_repo(tmp_path)
+    old_install(repo)
+    migrate.migrate(repo)
+    trash = paths.trash_dir()
+    first = list(trash.rglob("search_code.py"))
+    assert len(first) == 1
+
+    shutil.rmtree(repo / ".claude", ignore_errors=True)
+    old_install(repo)
+    migrate.migrate(repo)
+    second = list(trash.rglob("search_code.py*"))
+    # original trashed copy still present, plus a new non-colliding copy
+    assert first[0].exists()
+    assert len(second) == 2
+
+
+def test_dead_pid_does_not_crash_migrate(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path)
+    old_install(repo)
+    pid = 424242
+    (repo / ".watch_index.pid").write_text(str(pid))
+
+    # simulate a cmdline read that succeeds (process existed at read time)
+    monkeypatch.setattr(Path, "read_bytes", lambda self: b"python3 watch_index.py")
+
+    def fake_kill(p, sig):
+        # simulate the process having exited between the cmdline read and kill
+        raise ProcessLookupError()
+
+    monkeypatch.setattr(migrate.os, "kill", fake_kill)
+
+    report = migrate.migrate(repo)  # must not raise
+    assert report["evidence"]
+    assert pid not in report["killed"]

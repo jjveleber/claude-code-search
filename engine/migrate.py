@@ -34,6 +34,10 @@ def detect_old_install(repo: Path) -> bool:
 def _is_tracked(repo: Path, rel: str) -> bool:
     r = subprocess.run(["git", "-C", str(repo), "ls-files", "--", rel],
                        capture_output=True, text=True)
+    if r.returncode != 0:
+        # Can't determine tracked status: fail closed, treat as tracked
+        # so the caller skips it rather than trashing it.
+        return True
     return bool(r.stdout.strip())
 
 
@@ -51,7 +55,10 @@ def _kill_old_processes(repo: Path, dry_run: bool) -> list[int]:
             continue
         if script in cmdline:
             if not dry_run:
-                os.kill(pid, signal.SIGTERM)
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    continue
             killed.append(pid)
     return killed
 
@@ -145,7 +152,10 @@ def migrate(repo: Path, dry_run: bool = False) -> dict:
             dest = trash / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             if dest.exists():
-                shutil.rmtree(dest) if dest.is_dir() else dest.unlink()
+                n = 1
+                while (candidate := dest.with_name(f"{dest.name}.{n}")).exists():
+                    n += 1
+                dest = candidate
             shutil.move(str(target), str(dest))
     hooks_dir = repo / "hooks"
     if not dry_run and hooks_dir.is_dir() and not any(hooks_dir.iterdir()):
