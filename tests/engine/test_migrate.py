@@ -1,0 +1,92 @@
+import json
+from pathlib import Path
+import pytest
+from engine import migrate, paths
+from tests.engine.test_repoident import make_repo, _git
+
+
+@pytest.fixture(autouse=True)
+def csh(monkeypatch, tmp_path):
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    paths.ensure_home()
+
+
+def old_install(repo: Path):
+    """Simulate an old per-repo install (all artifacts untracked)."""
+    for f in ["index_project.py", "search_code.py", "watch_index.py",
+              "chunker.py", "search_server.py"]:
+        (repo / f).write_text("# installed copy\n")
+    (repo / "hooks").mkdir(exist_ok=True)
+    (repo / "hooks" / "post_search_code.sh").write_text("#!/bin/bash\n")
+    (repo / "hooks" / "pre_read_grep_glob.sh").write_text("#!/bin/bash\n")
+    (repo / "chroma_db").mkdir()
+    (repo / "chroma_db" / "model.txt").write_text("nomic-ai/CodeRankEmbed")
+    (repo / ".code-search-version").write_text("v1.2.0")
+    (repo / ".gitignore").write_text(
+        "chroma_db/\n.venv-code-search/\n.venv/\n__pycache__/\n"
+        ".watch_index.log\n.claude/settings.local.json\n.claude/CLAUDE.md\n")
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "CLAUDE.md").write_text(
+        "## Precision Protocol\n\n**Rule:** Before using `Read`...\n\nstuff\n")
+    (repo / ".claude" / "settings.local.json").write_text(json.dumps({
+        "hooks": {"UserPromptSubmit": [{"hooks": [
+            {"type": "command",
+             "command": "/abs/path/.venv-code-search/bin/python3 watch_index.py"}]}]},
+        "searchUsageTracking": {"warningsVisible": False},
+        "permissions": {"allow": ["Bash(ls:*)"]},
+    }))
+
+
+def test_no_evidence_touches_nothing(tmp_path):
+    repo = make_repo(tmp_path)
+    (repo / "chroma_db").mkdir()          # user's own chroma app, no model.txt
+    (repo / "chroma_db" / "data.bin").write_text("theirs")
+    report = migrate.migrate(repo)
+    assert not report["evidence"]
+    assert (repo / "chroma_db" / "data.bin").exists()
+
+
+def test_full_migration(tmp_path):
+    repo = make_repo(tmp_path)
+    old_install(repo)
+    report = migrate.migrate(repo)
+    assert report["evidence"]
+    assert not (repo / "search_code.py").exists()
+    assert not (repo / "chroma_db").exists()
+    assert not (repo / "hooks").exists()          # emptied then removed
+    # trashed, not destroyed
+    trash = paths.trash_dir()
+    assert any(trash.rglob("search_code.py"))
+    # gitignore: tool lines gone, generic lines kept
+    gi = (repo / ".gitignore").read_text()
+    assert "chroma_db/" not in gi and ".venv-code-search/" not in gi
+    assert ".venv/" in gi and "__pycache__/" in gi
+    assert ".claude/settings.local.json" in gi
+    # settings: our hooks gone, user's permissions kept
+    settings = json.loads((repo / ".claude" / "settings.local.json").read_text())
+    assert "searchUsageTracking" not in settings
+    assert settings["permissions"]["allow"] == ["Bash(ls:*)"]
+    assert not settings.get("hooks", {}).get("UserPromptSubmit")
+    # CLAUDE.md protocol block gone (file deleted since nothing else in it)
+    assert not (repo / ".claude" / "CLAUDE.md").exists()
+
+
+def test_tracked_files_skipped(tmp_path):
+    repo = make_repo(tmp_path)
+    old_install(repo)
+    _git("add", "search_code.py", cwd=repo)
+    _git("-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-m", "committed the script", cwd=repo)
+    report = migrate.migrate(repo)
+    assert "search_code.py" in report["skipped_tracked"]
+    assert (repo / "search_code.py").exists()
+    assert not (repo / "watch_index.py").exists()  # untracked ones still go
+
+
+def test_dry_run_changes_nothing(tmp_path):
+    repo = make_repo(tmp_path)
+    old_install(repo)
+    report = migrate.migrate(repo, dry_run=True)
+    assert report["evidence"] and report["trashed"]
+    assert (repo / "search_code.py").exists()
+    assert (repo / "chroma_db").exists()
