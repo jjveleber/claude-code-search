@@ -1,4 +1,5 @@
 """Central registry of enabled repos/worktrees. Stdlib only."""
+import contextlib
 import fcntl
 import json
 import os
@@ -38,14 +39,29 @@ def load() -> dict:
         return {"repos": {}}
 
 
-def save(reg: dict) -> None:
+@contextlib.contextmanager
+def _locked():
+    """Hold the registry file lock for a full read-modify-write transaction."""
     paths.ensure_home()
     lock = paths.registry_lock_path()
     with open(lock, "a") as lf:
         fcntl.flock(lf, fcntl.LOCK_EX)
-        tmp = paths.registry_path().with_suffix(".tmp")
-        tmp.write_text(json.dumps(reg, indent=2))
-        os.replace(tmp, paths.registry_path())
+        try:
+            yield
+        finally:
+            fcntl.flock(lf, fcntl.LOCK_UN)
+
+
+def _write(reg: dict) -> None:
+    """Write reg to disk. Caller must already hold the lock via _locked()."""
+    tmp = paths.registry_path().with_suffix(".tmp")
+    tmp.write_text(json.dumps(reg, indent=2))
+    os.replace(tmp, paths.registry_path())
+
+
+def save(reg: dict) -> None:
+    with _locked():
+        _write(reg)
 
 
 def resolve(worktree_root: Path) -> Resolved:
@@ -77,18 +93,19 @@ def enable(worktree_root: Path, bm25: bool = False) -> Resolved:
     fam_root = repoident.family_root(root)
     fam_id = repoident.repo_id(fam_root)
     rid = repoident.repo_id(root)
-    reg = load()
-    fam = reg["repos"].setdefault(fam_id, {
-        "main_path": str(fam_root),
-        "enabled_at": _now(),
-        "bm25": bm25,
-        "worktrees": {},
-    })
-    fam["worktrees"].setdefault(rid, {
-        "path": str(root), "last_indexed": None,
-        "auto_registered": False, "dead_since": None,
-    })
-    save(reg)
+    with _locked():
+        reg = load()
+        fam = reg["repos"].setdefault(fam_id, {
+            "main_path": str(fam_root),
+            "enabled_at": _now(),
+            "bm25": bm25,
+            "worktrees": {},
+        })
+        fam["worktrees"].setdefault(rid, {
+            "path": str(root), "last_indexed": None,
+            "auto_registered": False, "dead_since": None,
+        })
+        _write(reg)
     return resolve(root)
 
 
@@ -98,13 +115,14 @@ def register_worktree(worktree_root: Path) -> Resolved:
         raise NotEnabledError(f"family not enabled for {worktree_root}")
     if r.registered:
         return r
-    reg = load()
     root = repoident.repo_root(Path(worktree_root))
-    reg["repos"][r.family_id]["worktrees"][r.repo_id] = {
-        "path": str(root), "last_indexed": None,
-        "auto_registered": True, "dead_since": None,
-    }
-    save(reg)
+    with _locked():
+        reg = load()
+        reg["repos"][r.family_id]["worktrees"][r.repo_id] = {
+            "path": str(root), "last_indexed": None,
+            "auto_registered": True, "dead_since": None,
+        }
+        _write(reg)
     return resolve(root)
 
 
@@ -112,29 +130,33 @@ def disable(worktree_root: Path) -> list[str]:
     r = resolve(worktree_root)
     if not r.family_enabled:
         return []
-    reg = load()
-    fam = reg["repos"].pop(r.family_id)
-    save(reg)
+    with _locked():
+        reg = load()
+        fam = reg["repos"].pop(r.family_id, None)
+        if fam is None:
+            return []
+        _write(reg)
     return list(fam["worktrees"].keys())
 
 
 def gc(days: int = 7) -> list[str]:
-    reg = load()
     reaped = []
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    for fam_id in list(reg["repos"]):
-        fam = reg["repos"][fam_id]
-        for rid in list(fam["worktrees"]):
-            wt = fam["worktrees"][rid]
-            if Path(wt["path"]).exists():
-                wt["dead_since"] = None
-                continue
-            if wt["dead_since"] is None:
-                wt["dead_since"] = _now()
-            elif datetime.fromisoformat(wt["dead_since"]) < cutoff:
-                del fam["worktrees"][rid]
-                reaped.append(rid)
-        if not fam["worktrees"]:
-            del reg["repos"][fam_id]
-    save(reg)
+    with _locked():
+        reg = load()
+        for fam_id in list(reg["repos"]):
+            fam = reg["repos"][fam_id]
+            for rid in list(fam["worktrees"]):
+                wt = fam["worktrees"][rid]
+                if Path(wt["path"]).exists():
+                    wt["dead_since"] = None
+                    continue
+                if wt["dead_since"] is None:
+                    wt["dead_since"] = _now()
+                elif datetime.fromisoformat(wt["dead_since"]) < cutoff:
+                    del fam["worktrees"][rid]
+                    reaped.append(rid)
+            if not fam["worktrees"]:
+                del reg["repos"][fam_id]
+        _write(reg)
     return reaped

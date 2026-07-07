@@ -1,4 +1,5 @@
 import subprocess
+import threading
 from pathlib import Path
 import pytest
 from engine import registry, repoident
@@ -62,6 +63,38 @@ def test_disable_returns_repo_ids(tmp_path):
     ids = registry.disable(repo)
     assert ids == [repoident.repo_id(repo)]
     assert not registry.resolve(repo).family_enabled
+
+
+def test_disable_on_already_removed_family_returns_empty(tmp_path):
+    repo = make_repo(tmp_path)
+    r = registry.enable(repo)
+    # simulate a concurrent disable() winning the race: family removed
+    # from the registry after our resolve() but before our pop().
+    reg = registry.load()
+    del reg["repos"][r.family_id]
+    registry.save(reg)
+    assert registry.disable(repo) == []
+
+
+def test_concurrent_enable_does_not_lose_writes(tmp_path):
+    repo_a = make_repo(tmp_path, name="repo_a")
+    repo_b = make_repo(tmp_path, name="repo_b")
+
+    def worker(repo):
+        for _ in range(20):
+            registry.enable(repo)
+
+    t1 = threading.Thread(target=worker, args=(repo_a,))
+    t2 = threading.Thread(target=worker, args=(repo_b,))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert registry.resolve(repo_a).registered
+    assert registry.resolve(repo_b).registered
+    reg = registry.load()
+    assert len(reg["repos"]) == 2
 
 
 def test_gc_reaps_dead_paths(tmp_path, monkeypatch):
