@@ -38,6 +38,8 @@ claude-code-search/
 └── engine/                        # python package: chunker, indexer, daemon, search, cli
 ```
 
+**Deviation (2026-07-07):** hooks config does not live inline in `.claude-plugin/plugin.json` as the comment above suggests — `plugin.json` carries only `name`/`version`/`description`. Hook registration is a separate `hooks/hooks.json` (auto-discovered by the plugin loader per current Claude Code plugin conventions), and each hook entry requires a `"matcher": ""` field (even though `SessionStart`/`SessionEnd` have no tool matcher semantics) — the current hooks schema rejects entries without one.
+
 ### Central data dir
 
 ```
@@ -100,6 +102,8 @@ Commands:
 | `search {repo, query, top, bm25, all}` | embed query, query repo's collection, merge overlapping chunks, label `[prod]/[test]/[doc]/[generated]` |
 | `reindex {repo}` | force incremental pass (queued) |
 | `status` | watched repos, index stats, queue depth, uptime |
+
+**Deviation (2026-07-07):** the shipped command set adds `ping {}` (liveness check: `{"ok": true, "pid": ...}`), used by the client/hooks to distinguish "daemon alive" from "daemon needs spawning" without triggering a `watch`. `status` returns `watched` (path + session pids per repo), `uptime_s`, and `queue_pending` — it does not return per-repo index stats (chunk/collection counts) as this row implies; nothing in the client or CLI currently surfaces that either. Separately, `search` replies `{"status": "warming"}` not only while the embedding model is loading but also when a repo's collection is empty (index not yet built) — the "Warming handshake" note below describes only the model-loading case.
 
 **Lifecycle:**
 
