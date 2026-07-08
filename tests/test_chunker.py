@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from chunker import _chunk_lines_fallback, CHUNK_TARGET, CHUNK_MAX
+from engine.chunker import _chunk_lines_fallback, CHUNK_TARGET, CHUNK_MAX
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
@@ -66,7 +66,7 @@ class TestChunkLinesFallback:
             assert (end - start + 1) <= CHUNK_MAX + 1  # +1 for blank line extension
 
 
-from chunker import _get_parser, chunk_file
+from engine.chunker import _get_parser, chunk_file
 
 
 class TestGetParser:

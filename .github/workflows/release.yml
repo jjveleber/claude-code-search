@@ -1,3 +1,7 @@
+# BROKEN by central-install: this entire workflow packages and releases install.sh, which
+# was deleted along with the rest of the per-repo install machinery. The release process now
+# needs to publish this repo as a Claude Code plugin instead; that pipeline doesn't exist yet,
+# so this workflow will fail on the next tag push until it's redesigned.
 name: Create Release
 
 on:
