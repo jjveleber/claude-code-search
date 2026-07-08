@@ -1,0 +1,5 @@
+{
+  "name": "code-search",
+  "version": "2.0.0",
+  "description": "Semantic code search for Claude Code: central daemon, per-repo opt-in, zero files in your repos."
+}
