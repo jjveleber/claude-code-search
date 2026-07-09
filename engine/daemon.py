@@ -170,17 +170,20 @@ class Daemon:
         root = Path(req["repo"])
         rid = repoident.repo_id(repoident.repo_root(root) or root)
         pid = int(req["session_pid"])
+        to_stop = []
         with self.lock:
             w = self.watches.get(rid)
             if w:
                 w["sessions"].discard(pid)
                 if not w["sessions"]:
-                    w["watch"].stop()
+                    to_stop.append(w["watch"])
                     del self.watches[rid]
                     ri = self.indexes.pop(rid, None)
                     if ri:
                         ri.close()
                 self._persist_watches()
+        for w in to_stop:
+            w.stop()
         return {"ok": True}
 
     def cmd_unwatch_all(self, req):
@@ -193,10 +196,9 @@ class Daemon:
         rid = repoident.repo_id(repoident.repo_root(root) or root)
         with self.lock:
             w = self.watches.pop(rid, None)
-            if w:
-                w["watch"].stop()
             self._persist_watches()
         if w:
+            w["watch"].stop()
             # A job that already passed the start-of-job registry re-check
             # (see _queue_index) and is mid-ri.index() when disable lands is
             # not stopped by RepoWatch.stop() above — that only blocks NEW
@@ -239,7 +241,14 @@ class Daemon:
             return {"ok": False, "status": "warming"}
         ri = self._repo_index(r.repo_id, repoident.repo_root(root))
         if ri.count() == 0:
-            return {"ok": False, "status": "warming"}
+            # "empty" only if THIS repo's first index has finished (or was
+            # never queued) — a global active() check would mis-report a
+            # genuinely-empty repo as "warming" whenever any OTHER repo is
+            # indexing, which is the daemon's normal multi-repo state.
+            if r.repo_id in self.queue.pending() \
+                    or self.queue.active_repo() == r.repo_id:
+                return {"ok": False, "status": "warming"}
+            return {"ok": False, "status": "empty"}
         t0 = time.time()
         try:
             results = ri.search(
@@ -292,18 +301,21 @@ class Daemon:
     def prune_loop(self):
         idle_since = time.time()
         while not self.shutting_down.wait(PRUNE_INTERVAL):
+            to_stop = []
             with self.lock:
                 for rid in list(self.watches):
                     w = self.watches[rid]
                     w["sessions"] = {p for p in w["sessions"] if _pid_alive(p)}
                     if not w["sessions"]:
-                        w["watch"].stop()
+                        to_stop.append(w["watch"])
                         del self.watches[rid]
                         ri = self.indexes.pop(rid, None)
                         if ri:
                             ri.close()
                 self._persist_watches()
                 empty = not self.watches
+            for w in to_stop:
+                w.stop()
             # A pending/active index job must block idle-exit even with no
             # watches left: RepoIndex.index() computes all embeddings before
             # the first upsert, so killing it mid-job discards everything
@@ -394,9 +406,10 @@ def main():
     except FileNotFoundError:
         pass
     with daemon.lock:
-        for w in daemon.watches.values():
-            w["watch"].stop()
+        to_stop = [w["watch"] for w in daemon.watches.values()]
         daemon._persist_watches()
+    for w in to_stop:
+        w.stop()
     daemon.queue.stop()
     lock_fh.close()
 

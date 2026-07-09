@@ -54,7 +54,16 @@ def cmd_search(args) -> int:
               f"Run: code-search setup   (then retry)", file=sys.stderr)
         return 1
     if not resp.get("ok"):
-        print(resp.get("error", "search failed"), file=sys.stderr)
+        status = resp.get("status")
+        if status == "warming":
+            print("index still warming up — try again shortly", file=sys.stderr)
+        elif status == "empty":
+            print("index is empty — no indexable files in this repo", file=sys.stderr)
+        elif status == "timeout":
+            print("timed out waiting for the index to warm up — try again shortly",
+                  file=sys.stderr)
+        else:
+            print(resp.get("error", "search failed"), file=sys.stderr)
         return 1
     if not resp["results"]:
         print("No results found.")

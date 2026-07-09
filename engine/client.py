@@ -74,9 +74,11 @@ def search(repo, query, n_results=5, all_files=False, use_bm25=False,
             if spawns > 3 or not ensure_daemon():
                 raise
             continue
-        if resp.get("status") == "warming" and time.time() < deadline:
-            time.sleep(2.0)
-            continue
+        if resp.get("status") == "warming":
+            if time.time() < deadline:
+                time.sleep(2.0)
+                continue
+            return {"ok": False, "status": "timeout"}
         return resp
 
 

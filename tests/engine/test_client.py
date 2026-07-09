@@ -69,6 +69,15 @@ def test_search_retries_through_warming(monkeypatch):
         stop()
 
 
+def test_search_returns_timeout_after_deadline(monkeypatch):
+    monkeypatch.setattr(client, "ensure_daemon", lambda: True)
+    monkeypatch.setattr(client, "request",
+                        lambda payload, timeout=60.0: {"ok": False,
+                                                        "status": "warming"})
+    r = client.search("/repo", "query", warm_deadline=0.0)
+    assert r == {"ok": False, "status": "timeout"}
+
+
 def test_ensure_daemon_false_without_venv():
     # venv_python() does not exist in the tmp CODE_SEARCH_HOME
     assert client.ensure_daemon() is False
