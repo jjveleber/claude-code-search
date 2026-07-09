@@ -241,7 +241,12 @@ class Daemon:
             return {"ok": False, "status": "warming"}
         ri = self._repo_index(r.repo_id, repoident.repo_root(root))
         if ri.count() == 0:
-            if r.repo_id in self.queue.pending() or self.queue.active():
+            # "empty" only if THIS repo's first index has finished (or was
+            # never queued) — a global active() check would mis-report a
+            # genuinely-empty repo as "warming" whenever any OTHER repo is
+            # indexing, which is the daemon's normal multi-repo state.
+            if r.repo_id in self.queue.pending() \
+                    or self.queue.active_repo() == r.repo_id:
                 return {"ok": False, "status": "warming"}
             return {"ok": False, "status": "empty"}
         t0 = time.time()

@@ -226,6 +226,23 @@ def test_search_returns_empty_for_genuinely_empty_repo(monkeypatch, tmp_path):
         assert resp == {"ok": False, "status": "warming"}
     finally:
         d.queue._pending.discard(reg.repo_id)
+
+    # A DIFFERENT repo actively indexing must NOT flip this empty repo to
+    # 'warming' — the active-repo check is per-repo, not global.
+    d.queue._active_repo = "some-other-repo"
+    try:
+        resp = d.cmd_search({"repo": str(repo), "query": "x"})
+        assert resp == {"ok": False, "status": "empty"}
+    finally:
+        d.queue._active_repo = None
+
+    # This repo's own first index actively running -> 'warming'.
+    d.queue._active_repo = reg.repo_id
+    try:
+        resp = d.cmd_search({"repo": str(repo), "query": "x"})
+        assert resp == {"ok": False, "status": "warming"}
+    finally:
+        d.queue._active_repo = None
     d.queue.stop()
 
 

@@ -54,7 +54,7 @@ class IndexQueue:
     def __init__(self):
         self._q = queue.Queue()
         self._pending = set()
-        self._active = False
+        self._active_repo = None   # repo_id the worker is currently indexing
         self._lock = threading.Lock()
         self._stop = object()
         self._worker = threading.Thread(target=self._run, daemon=True)
@@ -75,7 +75,7 @@ class IndexQueue:
             repo_id, fn = item
             with self._lock:
                 self._pending.discard(repo_id)
-                self._active = True
+                self._active_repo = repo_id
             try:
                 fn()
             except Exception as e:
@@ -83,7 +83,7 @@ class IndexQueue:
                       flush=True)
             finally:
                 with self._lock:
-                    self._active = False
+                    self._active_repo = None
 
     def stop(self):
         self._q.put(self._stop)
@@ -95,7 +95,13 @@ class IndexQueue:
 
     def active(self):
         with self._lock:
-            return self._active
+            return self._active_repo is not None
+
+    def active_repo(self):
+        """repo_id the worker is currently indexing, or None. Unlike active(),
+        this lets a caller ask about a SPECIFIC repo rather than "any job"."""
+        with self._lock:
+            return self._active_repo
 
 
 class _Handler(FileSystemEventHandler):
