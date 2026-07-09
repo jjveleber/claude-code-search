@@ -126,8 +126,9 @@ class RepoIndex:
         return self._client
 
     def invalidate_caches(self):
-        self._bm25 = None
-        self._bm25_loaded = False
+        with self._bm25_lock:   # same lock as _load_bm25: no torn interleave
+            self._bm25 = None
+            self._bm25_loaded = False
 
     def close(self):
         self._client = None
@@ -306,6 +307,8 @@ class RepoIndex:
         }
 
     def count(self) -> int:
+        if not self.index_dir.exists():
+            return 0   # never materialize the index dir on a read path
         try:
             return self._chroma().get_collection(COLLECTION_NAME).count()
         except Exception:
