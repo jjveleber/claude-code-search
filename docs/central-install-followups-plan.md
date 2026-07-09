@@ -25,7 +25,7 @@ A plan file prompts nothing. To get told when: the orchestrator MUST do this.
 - **Mid-wave, if you notice context growing large (long Wave 3 debug) → tell the user to `/compact`.** (Auto-compact is the backstop if you miss it.)
 - Update the wave checkboxes above + commit before prompting a clear, so state survives the wipe.
 
-## Wave 1 — docs / one-liners  ·  model: Haiku 4.5
+## Wave 1 — docs / one-liners  ·  model: Haiku 4.5  ·  ✅ DONE (PR #41 merged, adversarial review clean)
 Single PR. No concurrency reasoning.
 - [x] #38 README: stale `search_code.py` ref + worktree first-search claim
 - [x] #40 test_hooks.sh Test 6 comment (venv.ok inaccuracy)
