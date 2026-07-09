@@ -1,3 +1,6 @@
+import json
+import threading
+import time
 import pytest
 from pathlib import Path
 from tests.engine.test_repoident import make_repo, _git
@@ -67,3 +70,41 @@ def test_clone_index_then_catch_up(indexed, tmp_path_factory):
     stats = ri2.index()  # catch-up on identical tree: nothing to do
     assert stats["upserted"] == 0 and stats["deleted"] == 0
     assert ri2.search("authentication")
+
+
+def test_concurrent_load_bm25_no_torn_read(tmp_path, monkeypatch):
+    """#36: _bm25_loaded must be set AFTER the corpus is built, under a lock,
+    so a concurrent caller never observes loaded=True with _bm25 still None
+    (a transient degrade to semantic-only)."""
+    idx = tmp_path / "idx"
+    idx.mkdir()
+    (idx / "bm25_corpus.json").write_text(json.dumps({"c1": "hello world"}))
+    ri = RepoIndex(tmp_path, idx)
+
+    entered = threading.Event()
+    release = threading.Event()
+    import rank_bm25
+    real = rank_bm25.BM25Okapi
+
+    def slow(*a, **k):
+        entered.set()
+        release.wait(5)
+        return real(*a, **k)
+
+    monkeypatch.setattr(rank_bm25, "BM25Okapi", slow)
+
+    a_result = {}
+    b_result = {}
+    ta = threading.Thread(target=lambda: a_result.__setitem__("v", ri._load_bm25()))
+    ta.start()
+    assert entered.wait(5), "builder thread never entered corpus build"
+    # Concurrent caller while the builder is still constructing the corpus:
+    tb = threading.Thread(target=lambda: b_result.__setitem__("v", ri._load_bm25()))
+    tb.start()
+    time.sleep(0.1)
+    release.set()
+    ta.join(5)
+    tb.join(5)
+    assert a_result["v"] is not None
+    assert b_result["v"] is not None, \
+        "concurrent search saw a torn semantic-only state"

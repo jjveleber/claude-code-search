@@ -18,6 +18,7 @@ from engine.watcher import IndexQueue, RepoWatch
 IDLE_EXIT_SECONDS = 600
 PRUNE_INTERVAL = 60
 LOG_ROTATE_BYTES = 10 * 1024 * 1024
+HANDLER_DRAIN_TIMEOUT = 5.0   # bounded wait for in-flight handlers at shutdown
 
 
 def _pid_alive(pid: int) -> bool:
@@ -55,6 +56,8 @@ class Daemon:
         self.model_ready = threading.Event()
         self.model_loading = False
         self.shutting_down = threading.Event()
+        self._handlers = set()                 # live request-handler threads
+        self._handlers_lock = threading.Lock()
 
     # ---- model warmup ------------------------------------------------
     def _ensure_model_async(self):
@@ -100,6 +103,16 @@ class Daemon:
                         print(f"[restore_watches] {w['path']}: "
                               f"{type(e).__name__}: {e}", flush=True)
 
+    def drain_handlers(self, deadline: float):
+        """Wait (bounded by deadline) for in-flight request handlers to finish,
+        so shutdown doesn't cut a response mid-send."""
+        with self._handlers_lock:
+            threads = list(self._handlers)
+        for t in threads:
+            remaining = deadline - time.time()
+            if remaining > 0:
+                t.join(timeout=remaining)
+
     # ---- repo helpers --------------------------------------------------
     def _repo_index(self, rid: str, root: Path) -> RepoIndex:
         with self.lock:
@@ -107,7 +120,7 @@ class Daemon:
                 self.indexes[rid] = RepoIndex(root, paths.index_dir(rid))
             return self.indexes[rid]
 
-    def _queue_index(self, rid: str, root: Path, bm25: bool):
+    def _queue_index(self, rid: str, root: Path, bm25: bool, seed_from: Path = None):
         ri = self._repo_index(rid, root)
         def job():
             # Re-check at job start (not just at submit time): the repo may
@@ -118,6 +131,12 @@ class Daemon:
             r = registry.resolve(root)
             if not (r.family_enabled and r.registered):
                 return
+            # Seed a fresh worktree from the main index here, on the single
+            # queue worker, so the copy serializes behind any active reindex
+            # (no torn sqlite) and two racing watches can't double-clone.
+            my_idx = paths.index_dir(rid)
+            if seed_from is not None and seed_from.exists() and not my_idx.exists():
+                clone_index(seed_from, my_idx)
             self.model_ready.wait()
             ri.index(use_bm25=bm25)
             ri.invalidate_caches()
@@ -141,14 +160,17 @@ class Daemon:
         r = registry.resolve(root)
         if not r.family_enabled:
             return {"ok": False, "error": "not enabled"}
+        seed_from = None
         if not r.registered:
             r = registry.register_worktree(root)
-            # seed from main worktree's index if it exists
+            # seed from main worktree's index if it exists — but do the copy
+            # on the queue worker (see _queue_index), not inline here, so it
+            # can't clone a torn sqlite mid-reindex.
             main_idx = paths.index_dir(r.main_repo_id)
             my_idx = paths.index_dir(r.repo_id)
             if r.main_repo_id != r.repo_id and main_idx.exists() \
                     and not my_idx.exists():
-                clone_index(main_idx, my_idx)
+                seed_from = main_idx
         self._ensure_model_async()
         pid = int(req["session_pid"])
         resolved_root = repoident.repo_root(root)
@@ -163,7 +185,8 @@ class Daemon:
                 self.watches[r.repo_id] = w
             w["sessions"].add(pid)
             self._persist_watches()
-        self._queue_index(r.repo_id, resolved_root, r.bm25)  # catch-up
+        self._queue_index(r.repo_id, resolved_root, r.bm25,
+                          seed_from=seed_from)  # seed (if new) + catch-up
         return {"ok": True, "repo_id": r.repo_id}
 
     def cmd_unwatch(self, req):
@@ -349,25 +372,32 @@ def _serve(daemon: Daemon, srv: socket.socket):
             conn, _ = srv.accept()
         except socket.timeout:
             continue
-        threading.Thread(target=_handle_conn, args=(daemon, conn),
-                         daemon=True).start()
+        t = threading.Thread(target=_handle_conn, args=(daemon, conn),
+                             daemon=True)
+        with daemon._handlers_lock:
+            daemon._handlers.add(t)
+        t.start()
 
 
 def _handle_conn(daemon, conn):
-    with conn:
-        conn.settimeout(30.0)
-        buf = b""
-        try:
-            while b"\n" not in buf:
-                chunk = conn.recv(65536)
-                if not chunk:
-                    return
-                buf += chunk
-            req = json.loads(buf.split(b"\n")[0])
-            resp = daemon.handle(req)
-            conn.sendall(json.dumps(resp).encode() + b"\n")
-        except (OSError, json.JSONDecodeError):
-            pass
+    try:
+        with conn:
+            conn.settimeout(30.0)
+            buf = b""
+            try:
+                while b"\n" not in buf:
+                    chunk = conn.recv(65536)
+                    if not chunk:
+                        return
+                    buf += chunk
+                req = json.loads(buf.split(b"\n")[0])
+                resp = daemon.handle(req)
+                conn.sendall(json.dumps(resp).encode() + b"\n")
+            except (OSError, json.JSONDecodeError):
+                pass
+    finally:
+        with daemon._handlers_lock:
+            daemon._handlers.discard(threading.current_thread())
 
 
 def main():
@@ -400,11 +430,13 @@ def main():
 
     _serve(daemon, srv)
 
-    # shutdown order: unlink socket -> stop watches -> persist -> release lock
+    # shutdown order: unlink socket -> drain in-flight handlers -> stop
+    # watches -> persist -> release lock
     try:
         os.unlink(sock_final)
     except FileNotFoundError:
         pass
+    daemon.drain_handlers(time.time() + HANDLER_DRAIN_TIMEOUT)
     with daemon.lock:
         to_stop = [w["watch"] for w in daemon.watches.values()]
         daemon._persist_watches()

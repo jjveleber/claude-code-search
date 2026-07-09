@@ -42,9 +42,9 @@ One PR. Real pain on this machine (WSL2).
 
 ## Wave 3 — concurrency hardening  ·  model: Opus 4.8  ·  reviewer escalate to Opus if subtle
 Highest judgment. Each fix needs a real-daemon test. Aware of lock-order with #35.
-- [ ] #30 cmd_watch clone outside lock → torn sqlite. Route clone through IndexQueue.
-- [ ] #36 _load_bm25 flag-before-corpus, no lock (self-heals; set flag after corpus, under lock).
-- [ ] #37 daemon shutdown kills handler threads mid-response (graceful drain; note spec deviation).
+- [x] #30 cmd_watch clone outside lock → torn sqlite. Route clone through IndexQueue (seed_from in _queue_index; runs on single worker → serialized behind active index, no double-clone).
+- [x] #36 _load_bm25 flag-before-corpus, no lock. Double-checked lock; build into local, set flag LAST.
+- [x] #37 daemon shutdown kills handler threads mid-response. Track handler threads; drain_handlers() bounded-join at shutdown before teardown.
 
 ## Wave 4 — latent / degenerate today  ·  model: Haiku/Sonnet, opportunistic
 Fold into related feature work, not standalone.

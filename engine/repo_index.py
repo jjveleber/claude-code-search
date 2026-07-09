@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import chromadb
@@ -115,6 +116,7 @@ class RepoIndex:
         self._client = None
         self._bm25 = None          # (BM25Okapi, id_list) or None
         self._bm25_loaded = False
+        self._bm25_lock = threading.Lock()
 
     # -- plumbing -------------------------------------------------------
     def _chroma(self):
@@ -311,19 +313,24 @@ class RepoIndex:
 
     # -- search ---------------------------------------------------------
     def _load_bm25(self):
-        if not self._bm25_loaded:
-            self._bm25_loaded = True
+        if self._bm25_loaded:
+            return self._bm25
+        with self._bm25_lock:
+            if self._bm25_loaded:   # another thread built it while we waited
+                return self._bm25
+            result = None
             corpus_path = self.index_dir / "bm25_corpus.json"
-            self._bm25 = None
             if corpus_path.exists():
                 try:
                     from rank_bm25 import BM25Okapi
                     corpus = json.loads(corpus_path.read_text())
                     ids = list(corpus.keys())
-                    self._bm25 = (BM25Okapi(
+                    result = (BM25Okapi(
                         [_tokenize_for_bm25(corpus[c]) for c in ids]), ids)
                 except Exception:
-                    self._bm25 = None
+                    result = None
+            self._bm25 = result
+            self._bm25_loaded = True   # flag LAST: corpus is fully built now
         return self._bm25
 
     def search(self, query, n_results=5, all_files=False, use_bm25=False):
