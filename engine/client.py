@@ -48,6 +48,7 @@ def ensure_daemon() -> bool:
     subprocess.Popen([str(py), "-m", "engine.daemon"], env=env,
                      stdout=log, stderr=subprocess.STDOUT,
                      start_new_session=True)
+    log.close()   # child keeps its own inherited fd; don't leak ours in the parent
     deadline = time.time() + 15
     while time.time() < deadline:
         try:

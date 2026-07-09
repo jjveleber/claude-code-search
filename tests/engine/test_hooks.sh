@@ -63,8 +63,9 @@ grep -qE "session_pid=$$\$" "$TMP/err5.log" \
 # Test 6: same pid-handshake regression, but for session_end.sh — it has its
 # own $PPID-vs-os.getppid() footgun (see the comment in session_end.sh) and
 # had no test covering it; a revert to os.getppid() there would go
-# undetected. REPO is already registered (Test 2) with venv.ok faked
-# (Test 3), so session_end.sh won't early-exit before reaching the pid line.
+# undetected. REPO is already registered (Test 2), so session_end.sh's
+# `if not r.registered` guard won't early-exit before reaching the pid line
+# (unlike session_start, session_end does not gate on venv.ok).
 CODE_SEARCH_SKIP_DAEMON=1 "$ROOT/hooks/session_end.sh" \
     <<< "{\"session_id\":\"s1\",\"cwd\":\"$REPO\"}" \
     2>"$TMP/err6.log" >/dev/null

@@ -49,7 +49,7 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 
 A `SessionStart` hook handles the rest automatically: it registers/watches the current repo with the central daemon, triggers a catch-up incremental index if files changed since last session, and injects the Precision Protocol (the "search before grep" rule) into context. There is nothing to start or stop manually.
 
-**Git worktrees** are auto-enabled: the first search or session in a worktree of an already-enabled repo registers that worktree with its own index, seeded by cloning the main worktree's index and then catch-up indexing — so it's ready in seconds instead of a full rebuild.
+**Git worktrees** are auto-enabled: the first session in a worktree of an already-enabled repo registers that worktree with its own index, seeded by cloning the main worktree's index and then catch-up indexing — so it's ready in seconds instead of a full rebuild.
 
 **BM25 hybrid search** is opt-in per repo. Enable it at registration time:
 
@@ -105,7 +105,7 @@ Releases are tagged as `vX.Y.Z` (e.g., `v2.0.0`). As of v2.0.0 the tool is distr
 2. Each file is split into ~60-line chunks with 10-line overlap, breaking at blank lines to keep functions intact
 3. Chunks are embedded using a model chosen by language: UniXcoder for systems languages (C/C++/Rust/Go/…), GraphCodeBERT for web/scripting, CodeBERT for config-only repos — no API key required, runs fully offline. Uses Apple MPS or AMD ROCm (auto-detected via `/dev/dxg` on WSL2) when available; otherwise CPU.
 4. On re-index, only chunks whose content has changed (SHA-256 hash comparison) are re-embedded
-5. `search_code.py` queries the vector DB (and BM25 corpus if present) and merges overlapping result chunks before printing
+5. `code-search search` queries the vector DB (and BM25 corpus if present) and merges overlapping result chunks before printing
 
 ## Eval
 
