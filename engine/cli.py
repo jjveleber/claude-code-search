@@ -101,7 +101,7 @@ def cmd_disable(args) -> int:
         print("not a git repository", file=sys.stderr)
         return 1
     ids = registry.disable(root)
-    client.unwatch(root, os.getpid())
+    client.unwatch_all(root)
     if args.purge:
         for rid in ids:
             shutil.rmtree(paths.index_dir(rid), ignore_errors=True)

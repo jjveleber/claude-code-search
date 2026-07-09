@@ -4,6 +4,14 @@ set -uo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PYTHONPATH="${PLUGIN_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 
+# $PPID here is THIS script's parent — the long-lived Claude process that
+# launched the hook. We must NOT use python's own os.getppid() below: since
+# python runs as `python3 <(...)`, its parent is this transient bash shell,
+# which exits as soon as the hook finishes. Registering the watch under that
+# pid causes the daemon's prune_loop to reap it within one prune cycle
+# (<=60s), even though the real session is still running.
+export CODE_SEARCH_SESSION_PID="$PPID"
+
 python3 <(cat <<'PYEOF'
 import json
 import os
@@ -29,10 +37,14 @@ if not setup_venv.venv_ok():
           file=sys.stderr)
     sys.exit(0)                     # session proceeds without search
 
+# The long-lived session pid, captured by the wrapping bash script as its
+# own $PPID (see comment there for why python's os.getppid() is wrong).
+session_pid = int(os.environ["CODE_SEARCH_SESSION_PID"])
+
 if not os.environ.get("CODE_SEARCH_SKIP_DAEMON"):   # test escape hatch
     from engine import client
     try:
-        resp = client.watch(cwd, os.getppid())
+        resp = client.watch(cwd, session_pid)
         if not resp.get("ok"):
             print(f"code-search: watch failed: {resp.get('error')}",
                   file=sys.stderr)
@@ -40,6 +52,12 @@ if not os.environ.get("CODE_SEARCH_SKIP_DAEMON"):   # test escape hatch
     except client.DaemonUnavailable as e:
         print(f"code-search: daemon unavailable: {e}", file=sys.stderr)
         sys.exit(0)
+else:
+    # test-only debug line: exposes the pid that WOULD have been registered,
+    # so test_hooks.sh can assert it's the long-lived caller pid and not
+    # python's transient getppid().
+    print(f"code-search: [skip-daemon] session_pid={session_pid}",
+          file=sys.stderr)
 
 protocol = """## Precision Protocol
 

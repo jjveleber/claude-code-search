@@ -46,6 +46,20 @@ assert 'Precision Protocol' in ctx and 'code-search search' in ctx
 assert d['hookSpecificOutput']['hookEventName'] == 'SessionStart'
 " || fail "additionalContext malformed"
 
+# Test 5: session pid handshake — session_start.sh must pass the long-lived
+# caller pid (its own $PPID) into python, NOT python's transient
+# os.getppid(). Under CODE_SEARCH_SKIP_DAEMON the hook still resolves and
+# logs the session pid it WOULD have registered; invoked as a plain foreground
+# command (here-string, no pipe/subshell) session_start.sh's direct parent is
+# this test script process, so the logged pid must equal $$.
+# This fails against the old os.getppid()-based code: os.getppid() would
+# instead report the wrapping bash script's own (transient) pid, not $$.
+CODE_SEARCH_SKIP_DAEMON=1 "$ROOT/hooks/session_start.sh" \
+    <<< "{\"session_id\":\"s1\",\"cwd\":\"$REPO\"}" \
+    2>"$TMP/err5.log" >/dev/null
+grep -q "session_pid=$$" "$TMP/err5.log" \
+    || fail "expected session_pid=$$ (this test's pid), got: $(cat "$TMP/err5.log")"
+
 # Test 4: session_end on unregistered repo -> silent success
 echo "{\"session_id\":\"s1\",\"cwd\":\"$TMP\"}" \
     | "$ROOT/hooks/session_end.sh" || fail "session_end non-zero"

@@ -97,6 +97,21 @@ def test_concurrent_enable_does_not_lose_writes(tmp_path):
     assert len(reg["repos"]) == 2
 
 
+def test_enable_bm25_upgrades_already_enabled_family(tmp_path):
+    repo = make_repo(tmp_path)
+    registry.enable(repo)
+    assert registry.resolve(repo).bm25 is False
+
+    r = registry.enable(repo, bm25=True)
+    assert r.bm25 is True
+    assert registry.resolve(repo).bm25 is True
+
+    # persisted to disk, not just returned in-memory
+    reg = registry.load()
+    fam = reg["repos"][repoident.repo_id(repo)]
+    assert fam["bm25"] is True
+
+
 def test_gc_reaps_dead_paths(tmp_path, monkeypatch):
     repo = make_repo(tmp_path)
     registry.enable(repo)

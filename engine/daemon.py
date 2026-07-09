@@ -110,10 +110,27 @@ class Daemon:
     def _queue_index(self, rid: str, root: Path, bm25: bool):
         ri = self._repo_index(rid, root)
         def job():
+            # Re-check at job start (not just at submit time): the repo may
+            # have been disabled between when this job was queued/coalesced
+            # and when the worker actually picks it up (e.g. disable racing
+            # a stale on_change), which would otherwise resurrect an index
+            # that was just purged.
+            r = registry.resolve(root)
+            if not (r.family_enabled and r.registered):
+                return
             self.model_ready.wait()
             ri.index(use_bm25=bm25)
             ri.invalidate_caches()
         self.queue.submit(rid, job)
+
+    def _on_repo_change(self, rid: str, root: Path, bm25: bool):
+        # Guard the fs-watch callback itself too: RepoWatch.stop() can race
+        # a debounce flush already in flight (see RepoWatch._stopped), so a
+        # stale on_change can still fire right after disable/unwatch_all.
+        r = registry.resolve(root)
+        if not (r.family_enabled and r.registered):
+            return
+        self._queue_index(rid, root, bm25)
 
     # ---- commands -------------------------------------------------------
     def cmd_ping(self, req):
@@ -140,7 +157,7 @@ class Daemon:
             if w is None:
                 watch = RepoWatch(resolved_root, on_change=lambda rid=r.repo_id,
                                   rr=resolved_root, b=r.bm25:
-                                  self._queue_index(rid, rr, b))
+                                  self._on_repo_change(rid, rr, b))
                 w = {"path": str(resolved_root), "sessions": set(),
                      "watch": watch}
                 self.watches[r.repo_id] = w
@@ -164,6 +181,24 @@ class Daemon:
                     if ri:
                         ri.close()
                 self._persist_watches()
+        return {"ok": True}
+
+    def cmd_unwatch_all(self, req):
+        """Unconditionally drop the watch for a repo, regardless of which
+        session pids hold it. Used by `disable` — the CLI invocation is
+        never itself a registered session pid, so the per-pid cmd_unwatch
+        above can't remove the watch; leaving it live lets on_change keep
+        queuing indexes after disable/purge."""
+        root = Path(req["repo"])
+        rid = repoident.repo_id(repoident.repo_root(root) or root)
+        with self.lock:
+            w = self.watches.pop(rid, None)
+            if w:
+                w["watch"].stop()
+                ri = self.indexes.pop(rid, None)
+                if ri:
+                    ri.close()
+            self._persist_watches()
         return {"ok": True}
 
     def cmd_search(self, req):
@@ -241,7 +276,12 @@ class Daemon:
                             ri.close()
                 self._persist_watches()
                 empty = not self.watches
-            if empty:
+            # A pending/active index job must block idle-exit even with no
+            # watches left: RepoIndex.index() computes all embeddings before
+            # the first upsert, so killing it mid-job discards everything
+            # and the respawned daemon restarts from zero.
+            queue_busy = bool(self.queue.pending()) or self.queue.active()
+            if empty and not queue_busy:
                 if time.time() - idle_since > IDLE_EXIT_SECONDS:
                     self.shutting_down.set()
             else:

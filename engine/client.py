@@ -94,6 +94,16 @@ def unwatch(repo, session_pid):
         return {"ok": False, "error": "daemon not running"}
 
 
+def unwatch_all(repo):
+    """Drop the watch for `repo` regardless of session pid — used by
+    `disable`, which is never itself a registered session."""
+    try:
+        return request({"cmd": "unwatch_all", "repo": str(repo)},
+                       timeout=5.0)
+    except DaemonUnavailable:
+        return {"ok": False, "error": "daemon not running"}
+
+
 def status():
     if not ensure_daemon():
         raise DaemonUnavailable("venv missing — run: code-search setup")

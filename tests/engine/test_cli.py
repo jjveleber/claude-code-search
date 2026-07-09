@@ -54,6 +54,6 @@ def test_disable_purge_removes_index(tmp_path, monkeypatch):
     idx = paths.index_dir(r.repo_id)
     idx.mkdir(parents=True)
     (idx / "chroma.sqlite3").write_text("x")
-    monkeypatch.setattr(cli.client, "unwatch", lambda *a: {"ok": True})
+    monkeypatch.setattr(cli.client, "unwatch_all", lambda *a: {"ok": True})
     assert cli.main(["disable", "--purge"]) == 0
     assert not idx.exists()

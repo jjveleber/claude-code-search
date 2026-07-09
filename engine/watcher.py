@@ -54,6 +54,7 @@ class IndexQueue:
     def __init__(self):
         self._q = queue.Queue()
         self._pending = set()
+        self._active = False
         self._lock = threading.Lock()
         self._stop = object()
         self._worker = threading.Thread(target=self._run, daemon=True)
@@ -74,11 +75,15 @@ class IndexQueue:
             repo_id, fn = item
             with self._lock:
                 self._pending.discard(repo_id)
+                self._active = True
             try:
                 fn()
             except Exception as e:
                 print(f"[index-queue] {repo_id}: {type(e).__name__}: {e}",
                       flush=True)
+            finally:
+                with self._lock:
+                    self._active = False
 
     def stop(self):
         self._q.put(self._stop)
@@ -87,6 +92,10 @@ class IndexQueue:
     def pending(self):
         with self._lock:
             return sorted(self._pending)
+
+    def active(self):
+        with self._lock:
+            return self._active
 
 
 class _Handler(FileSystemEventHandler):
@@ -112,6 +121,7 @@ class RepoWatch:
         self._on_change = on_change
         self._batch: list[str] = []
         self._timer = None
+        self._stopped = False
         self._lock = threading.Lock()
         cls = PollingObserver if _needs_polling(self.root) else Observer
         self._observer = cls()
@@ -130,6 +140,8 @@ class RepoWatch:
 
     def _flush(self):
         with self._lock:
+            if self._stopped:
+                return   # Timer.cancel() is a no-op once _flush has started
             batch, self._batch = self._batch, []
         ignored = git_ignored_batch(self.root, batch)
         if any(p not in ignored for p in batch):
@@ -137,6 +149,7 @@ class RepoWatch:
 
     def stop(self):
         with self._lock:
+            self._stopped = True
             if self._timer is not None:
                 self._timer.cancel()
         self._observer.stop()

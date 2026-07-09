@@ -95,12 +95,17 @@ def enable(worktree_root: Path, bm25: bool = False) -> Resolved:
     rid = repoident.repo_id(root)
     with _locked():
         reg = load()
+        existed = fam_id in reg["repos"]
         fam = reg["repos"].setdefault(fam_id, {
             "main_path": str(fam_root),
             "enabled_at": _now(),
             "bm25": bm25,
             "worktrees": {},
         })
+        if existed:
+            # bm25 is sticky-on: re-enabling with --bm25 must upgrade an
+            # already-enabled family, never silently downgrade it.
+            fam["bm25"] = fam.get("bm25", False) or bm25
         fam["worktrees"].setdefault(rid, {
             "path": str(root), "last_indexed": None,
             "auto_registered": False, "dead_since": None,

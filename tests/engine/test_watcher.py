@@ -71,3 +71,40 @@ def test_repo_watch_ignores_noise(tmp_path):
         assert not fired.wait(2.0)
     finally:
         w.stop()
+
+
+def test_index_queue_active_while_job_runs():
+    """Idle-exit must be able to see a job as still running (not just
+    queued), so the daemon can't shut down and kill it mid-index."""
+    q = watcher.IndexQueue()
+    started = threading.Event()
+    gate = threading.Event()
+    def slow():
+        started.set()
+        gate.wait(5)
+    assert q.active() is False
+    q.submit("r1", slow)
+    assert started.wait(5)
+    assert q.active() is True
+    gate.set()
+    deadline = time.time() + 5
+    while q.active() and time.time() < deadline:
+        time.sleep(0.02)
+    assert q.active() is False
+    q.stop()
+
+
+def test_repo_watch_stop_prevents_flush_already_in_flight(tmp_path):
+    """Regression: threading.Timer.cancel() is a no-op once the timer's
+    function has already started, so a debounce flush racing stop() could
+    still fire on_change after the watch was torn down. Simulate that race
+    directly by calling _flush() after stop() (rather than relying on timer
+    timing, which cancel() would usually win anyway)."""
+    repo = make_repo(tmp_path)
+    fired = threading.Event()
+    w = watcher.RepoWatch(repo, on_change=fired.set)
+    with w._lock:
+        w._batch.append("x.py")
+    w.stop()
+    w._flush()   # simulates a flush that had already started before stop()
+    assert not fired.is_set()

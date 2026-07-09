@@ -4,6 +4,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 import pytest
@@ -95,6 +96,97 @@ def test_singleton_second_daemon_exits(daemon, tmp_path):
     p2 = subprocess.Popen([sys.executable, "-m", "engine.daemon"], env=env)
     assert p2.wait(timeout=15) == 0  # loser exits cleanly, does NOT touch socket
     assert _req({"cmd": "ping"})["ok"]  # original still serving
+
+
+def test_prune_loop_waits_for_active_queue_job(monkeypatch, tmp_path):
+    """Idle-exit must not fire while an index job is queued/running, even
+    with zero watches — killing RepoIndex.index() mid-job loses all
+    computed embeddings and the respawned daemon restarts from zero."""
+    from engine import daemon as daemon_mod
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    monkeypatch.setattr(daemon_mod, "IDLE_EXIT_SECONDS", 0.3)
+    monkeypatch.setattr(daemon_mod, "PRUNE_INTERVAL", 0.1)
+
+    d = daemon_mod.Daemon()
+    started = threading.Event()
+    gate = threading.Event()
+    def slow_job():
+        started.set()
+        gate.wait(5)
+    d.queue.submit("r1", slow_job)
+    assert started.wait(5)
+
+    t = threading.Thread(target=d.prune_loop, daemon=True)
+    t.start()
+    try:
+        time.sleep(1.0)   # several prune cycles, well past IDLE_EXIT_SECONDS
+        assert not d.shutting_down.is_set(), \
+            "daemon idle-exited while an index job was still active"
+    finally:
+        gate.set()
+        d.shutting_down.set()
+        t.join(timeout=5)
+        d.queue.stop()
+
+
+def test_prune_loop_idle_exits_once_queue_and_watches_are_empty(monkeypatch, tmp_path):
+    from engine import daemon as daemon_mod
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    monkeypatch.setattr(daemon_mod, "IDLE_EXIT_SECONDS", 0.2)
+    monkeypatch.setattr(daemon_mod, "PRUNE_INTERVAL", 0.05)
+
+    d = daemon_mod.Daemon()
+    t = threading.Thread(target=d.prune_loop, daemon=True)
+    t.start()
+    try:
+        assert d.shutting_down.wait(5), \
+            "daemon never idle-exited with an empty queue and no watches"
+    finally:
+        t.join(timeout=5)
+        d.queue.stop()
+
+
+def test_unwatch_all_removes_watch_and_stops_it(monkeypatch, tmp_path):
+    """`disable` uses unwatch_all (not the pid-based unwatch) because the
+    CLI's own pid was never registered as a session."""
+    from engine import daemon as daemon_mod, registry
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    repo = make_repo(tmp_path)
+    reg = registry.enable(repo)
+
+    d = daemon_mod.Daemon()
+    r = d.cmd_watch({"repo": str(repo), "session_pid": os.getpid()})
+    assert r["ok"]
+    watch = d.watches[reg.repo_id]["watch"]
+
+    resp = d.cmd_unwatch_all({"repo": str(repo)})
+    assert resp["ok"]
+    assert reg.repo_id not in d.watches
+    assert watch._stopped is True
+
+    st = d.cmd_status({})
+    assert st["watched"] == {}
+
+
+def test_queued_index_job_skipped_for_disabled_repo(monkeypatch, tmp_path):
+    """A job queued for a repo that is no longer registered (disable raced
+    a stale on_change / catch-up index) must not recreate the just-purged
+    index directory."""
+    from engine import daemon as daemon_mod, registry, repoident
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    repo = make_repo(tmp_path)
+    (repo / "auth.py").write_text("def f(): pass\n")
+    _git("add", ".", cwd=repo)
+    r = registry.enable(repo)
+    registry.disable(repo)   # repo no longer registered
+
+    d = daemon_mod.Daemon()
+    d._queue_index(r.repo_id, repoident.repo_root(repo), r.bm25)
+    d.queue.stop()   # drains synchronously; job must skip immediately
+
+    idx_dir = paths.index_dir(r.repo_id)
+    assert not idx_dir.exists(), \
+        "index job ran against a disabled repo and recreated its index dir"
 
 
 def test_restore_watches_on_startup(monkeypatch, tmp_path):
