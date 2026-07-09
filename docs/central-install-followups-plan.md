@@ -31,10 +31,14 @@ Single PR. No concurrency reasoning.
 - [x] #40 test_hooks.sh Test 6 comment (venv.ok inaccuracy)
 - [x] #33 ensure_daemon daemon.log fd leak (close in parent)
 
-## Wave 2 — WSL2 / UX correctness  ·  model: Sonnet 5
+## Wave 2 — WSL2 / UX correctness  ·  model: Sonnet 5  ·  ✅ DONE (PR #42 merged)
 One PR. Real pain on this machine (WSL2).
-- [ ] #35 RepoWatch.stop() joins observer under daemon.lock → daemon stall. Collect under lock, stop/join after release.
-- [ ] #29 empty-repo permanent `warming` + client stale-warming: add distinct "not ready"/"empty" status.
+- [x] #35 RepoWatch.stop() joins observer under daemon.lock → daemon stall. Collect under lock, stop/join after release. (4 sites: cmd_unwatch, cmd_unwatch_all, prune_loop, main() shutdown.)
+- [x] #29 empty-repo permanent `warming` + client stale-warming: distinct `empty` (daemon) + `timeout` (client) statuses; cli maps warming/empty/timeout to messages.
+
+**Adversarial review caught a real bug pre-merge:** the empty-vs-warming check first used the global `IndexQueue.active()` bool, so a genuinely-empty repo reported `warming` (→ client retries to `warm_deadline`, then `timeout`) whenever ANY other repo was indexing — the daemon's normal multi-repo state, defeating #29. Fixed: `IndexQueue` now tracks the active repo_id (`active_repo()`); `active()` keeps global-bool semantics for the drain/idle-exit callers.
+
+**Known follow-up (NOT fixed — Wave 4 candidate):** if a repo's first index *raises* (disk/embed error), `count()` stays 0 and it now reports `empty` ("no indexable files") with no auto-retry — a false claim vs the pre-#29 permanent-`warming`. Needs an index-succeeded flag / error state; out of scope for #29's empty-vs-warming distinction.
 
 ## Wave 3 — concurrency hardening  ·  model: Opus 4.8  ·  reviewer escalate to Opus if subtle
 Highest judgment. Each fix needs a real-daemon test. Aware of lock-order with #35.
