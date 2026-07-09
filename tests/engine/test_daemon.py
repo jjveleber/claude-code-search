@@ -168,6 +168,67 @@ def test_unwatch_all_removes_watch_and_stops_it(monkeypatch, tmp_path):
     assert st["watched"] == {}
 
 
+def test_unwatch_stops_watch_outside_lock(monkeypatch, tmp_path):
+    """RepoWatch.stop() joins the observer thread (up to 5s) — it must never
+    be called while daemon.lock is held, or all daemon commands stall on
+    WSL2 (issue #35)."""
+    from engine import daemon as daemon_mod, registry
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    repo = make_repo(tmp_path)
+    reg = registry.enable(repo)
+
+    d = daemon_mod.Daemon()
+    r = d.cmd_watch({"repo": str(repo), "session_pid": os.getpid()})
+    assert r["ok"]
+
+    watch = d.watches[reg.repo_id]["watch"]
+    real_stop = watch.stop
+    stop_calls = []
+
+    def fake_stop():
+        acquired = d.lock.acquire(blocking=False)
+        assert acquired, "watch.stop() was called while daemon.lock was held"
+        d.lock.release()
+        stop_calls.append(True)
+        real_stop()
+
+    monkeypatch.setattr(watch, "stop", fake_stop)
+
+    resp = d.cmd_unwatch({"repo": str(repo), "session_pid": os.getpid()})
+    assert resp["ok"]
+    assert stop_calls == [True]
+
+
+def test_search_returns_empty_for_genuinely_empty_repo(monkeypatch, tmp_path):
+    """A repo whose index has been built with zero chunks must report a
+    distinct 'empty' status; a repo whose first index is still
+    queued/running must keep reporting 'warming' (issue #29)."""
+    from engine import daemon as daemon_mod, registry
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    repo = make_repo(tmp_path)
+    reg = registry.enable(repo)
+
+    d = daemon_mod.Daemon()
+    d.model_ready.set()
+
+    class FakeRI:
+        def count(self):
+            return 0
+
+    d.indexes[reg.repo_id] = FakeRI()
+
+    resp = d.cmd_search({"repo": str(repo), "query": "x"})
+    assert resp == {"ok": False, "status": "empty"}
+
+    d.queue._pending.add(reg.repo_id)
+    try:
+        resp = d.cmd_search({"repo": str(repo), "query": "x"})
+        assert resp == {"ok": False, "status": "warming"}
+    finally:
+        d.queue._pending.discard(reg.repo_id)
+    d.queue.stop()
+
+
 def test_unwatch_all_drains_active_index_job_before_closing(monkeypatch, tmp_path):
     """A job that already passed the start-of-job disabled-check and is
     mid-write when disable lands must finish before cmd_unwatch_all closes
