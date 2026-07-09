@@ -24,9 +24,17 @@ cwd = payload.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
 r = registry.resolve(Path(cwd))
 if not r.registered:
     sys.exit(0)
-from engine import client
 session_pid = int(os.environ["CODE_SEARCH_SESSION_PID"])
-client.unwatch(cwd, session_pid)   # swallows DaemonUnavailable internally
+
+if not os.environ.get("CODE_SEARCH_SKIP_DAEMON"):   # test escape hatch
+    from engine import client
+    client.unwatch(cwd, session_pid)   # swallows DaemonUnavailable internally
+else:
+    # test-only debug line: exposes the pid that WOULD have been unwatched,
+    # so test_hooks.sh can assert it's the long-lived caller pid and not
+    # python's transient getppid().
+    print(f"code-search: [skip-daemon] session_pid={session_pid}",
+          file=sys.stderr)
 PYEOF
 )
 exit 0

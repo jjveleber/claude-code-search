@@ -168,6 +168,79 @@ def test_unwatch_all_removes_watch_and_stops_it(monkeypatch, tmp_path):
     assert st["watched"] == {}
 
 
+def test_unwatch_all_drains_active_index_job_before_closing(monkeypatch, tmp_path):
+    """A job that already passed the start-of-job disabled-check and is
+    mid-write when disable lands must finish before cmd_unwatch_all closes
+    the RepoIndex — otherwise the CLI's rmtree (which runs right after
+    unwatch_all returns) can race a live write. Wires watch/index state
+    directly rather than going through cmd_watch, whose real catch-up job
+    would block forever on model_ready (never set in this test) — same
+    trick as test_queued_index_job_skipped_for_disabled_repo below."""
+    from engine import daemon as daemon_mod, registry
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    repo = make_repo(tmp_path)
+    reg = registry.enable(repo)
+
+    d = daemon_mod.Daemon()
+
+    class FakeWatch:
+        def __init__(self):
+            self.stopped = False
+        def stop(self):
+            self.stopped = True
+
+    class FakeRI:
+        def __init__(self):
+            self.closed_at = None
+        def close(self):
+            self.closed_at = time.time()
+
+    fake_watch = FakeWatch()
+    fake_ri = FakeRI()
+    with d.lock:
+        d.watches[reg.repo_id] = {"path": str(repo), "sessions": {os.getpid()},
+                                   "watch": fake_watch}
+        d.indexes[reg.repo_id] = fake_ri
+
+    started = threading.Event()
+    gate = threading.Event()
+    finished_at = {}
+
+    def slow_job():
+        started.set()
+        gate.wait(5)
+        finished_at["t"] = time.time()
+
+    d.queue.submit(reg.repo_id, slow_job)  # simulates a job already in-flight
+    assert started.wait(5)
+
+    result = {}
+    def call_unwatch_all():
+        result["resp"] = d.cmd_unwatch_all({"repo": str(repo)})
+
+    t = threading.Thread(target=call_unwatch_all)
+    t.start()
+    try:
+        time.sleep(0.3)
+        assert t.is_alive(), \
+            "unwatch_all returned before the active index job finished"
+        assert fake_ri.closed_at is None, \
+            "RepoIndex was closed while an index job was still writing to it"
+    finally:
+        gate.set()
+        t.join(timeout=5)
+
+    assert not t.is_alive()
+    assert result["resp"]["ok"]
+    assert fake_watch.stopped is True
+    assert not d.queue.active() and not d.queue.pending()
+    assert fake_ri.closed_at is not None
+    assert fake_ri.closed_at >= finished_at["t"], \
+        "RepoIndex was closed before the in-flight job actually finished"
+
+    d.queue.stop()
+
+
 def test_queued_index_job_skipped_for_disabled_repo(monkeypatch, tmp_path):
     """A job queued for a repo that is no longer registered (disable raced
     a stale on_change / catch-up index) must not recreate the just-purged

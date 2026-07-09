@@ -195,10 +195,38 @@ class Daemon:
             w = self.watches.pop(rid, None)
             if w:
                 w["watch"].stop()
-                ri = self.indexes.pop(rid, None)
-                if ri:
-                    ri.close()
             self._persist_watches()
+        if w:
+            # A job that already passed the start-of-job registry re-check
+            # (see _queue_index) and is mid-ri.index() when disable lands is
+            # not stopped by RepoWatch.stop() above — that only blocks NEW
+            # jobs from being queued via on_change. If we closed the
+            # RepoIndex (or let the CLI's rmtree run) while that job is
+            # still writing through it, we'd get a torn write or a purged
+            # dir that gets partially repopulated. So: wait for the queue to
+            # go idle before closing.
+            #
+            # disable is rare and not latency-critical, so waiting for ANY
+            # active/pending job (not strictly this rid) is an acceptable
+            # simplification over threading an active-rid through
+            # IndexQueue — it's a single global worker, so "queue idle" is
+            # cheap to observe and still guarantees ri.close() below can
+            # never race a live write for this repo. Bounded so a
+            # genuinely stuck worker can't hang disable forever; generous
+            # enough to cover a job parked in model_ready.wait(). Must NOT
+            # hold daemon.lock while waiting — other commands (search,
+            # status, other watches) need it in the meantime.
+            deadline = time.time() + 120
+            while (self.queue.active() or self.queue.pending()) \
+                    and time.time() < deadline:
+                time.sleep(0.1)
+            if self.queue.active() or self.queue.pending():
+                print("[unwatch_all] timed out waiting for index queue to "
+                      "drain; proceeding anyway", flush=True)
+            with self.lock:
+                ri = self.indexes.pop(rid, None)
+            if ri:
+                ri.close()
         return {"ok": True}
 
     def cmd_search(self, req):

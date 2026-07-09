@@ -57,8 +57,19 @@ assert d['hookSpecificOutput']['hookEventName'] == 'SessionStart'
 CODE_SEARCH_SKIP_DAEMON=1 "$ROOT/hooks/session_start.sh" \
     <<< "{\"session_id\":\"s1\",\"cwd\":\"$REPO\"}" \
     2>"$TMP/err5.log" >/dev/null
-grep -q "session_pid=$$" "$TMP/err5.log" \
+grep -qE "session_pid=$$\$" "$TMP/err5.log" \
     || fail "expected session_pid=$$ (this test's pid), got: $(cat "$TMP/err5.log")"
+
+# Test 6: same pid-handshake regression, but for session_end.sh — it has its
+# own $PPID-vs-os.getppid() footgun (see the comment in session_end.sh) and
+# had no test covering it; a revert to os.getppid() there would go
+# undetected. REPO is already registered (Test 2) with venv.ok faked
+# (Test 3), so session_end.sh won't early-exit before reaching the pid line.
+CODE_SEARCH_SKIP_DAEMON=1 "$ROOT/hooks/session_end.sh" \
+    <<< "{\"session_id\":\"s1\",\"cwd\":\"$REPO\"}" \
+    2>"$TMP/err6.log" >/dev/null
+grep -qE "session_pid=$$\$" "$TMP/err6.log" \
+    || fail "expected session_pid=$$ (this test's pid), got: $(cat "$TMP/err6.log")"
 
 # Test 4: session_end on unregistered repo -> silent success
 echo "{\"session_id\":\"s1\",\"cwd\":\"$TMP\"}" \
