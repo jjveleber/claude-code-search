@@ -216,6 +216,11 @@ def test_search_returns_empty_for_genuinely_empty_repo(monkeypatch, tmp_path):
             return 0
 
     d.indexes[reg.repo_id] = FakeRI()
+    # "built with zero chunks" == an index run that completed successfully but
+    # found nothing. That's what distinguishes a genuinely-empty repo from one
+    # that has simply never been indexed this daemon lifetime (which now
+    # self-heals to 'warming' — see test_search_self_heals_...).
+    d.queue._succeeded.add(reg.repo_id)
 
     resp = d.cmd_search({"repo": str(repo), "query": "x"})
     assert resp == {"ok": False, "status": "empty"}
@@ -268,6 +273,93 @@ def test_search_reports_index_error_when_first_index_raised(monkeypatch, tmp_pat
     resp = d.cmd_search({"repo": str(repo), "query": "x"})
     assert resp == {"ok": False, "status": "index_error",
                      "error": "ValueError: bad tree-sitter grammar"}
+    d.queue.stop()
+
+
+def test_search_self_heals_when_never_indexed(monkeypatch, tmp_path):
+    """count==0 with no index run yet this daemon lifetime (fresh restart, or a
+    just-registered worktree) must NOT report 'empty' with no remedy — it must
+    queue an index and report 'warming' so the repo self-heals (issue #32 /
+    the S-F2 false-empty-after-restart gap)."""
+    from engine import daemon as daemon_mod, registry
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    repo = make_repo(tmp_path)
+    reg = registry.enable(repo)
+
+    d = daemon_mod.Daemon()
+    d.model_ready.set()
+
+    class FakeRI:
+        def count(self):
+            return 0
+    d.indexes[reg.repo_id] = FakeRI()
+
+    queued = []
+    monkeypatch.setattr(d, "_queue_index",
+                        lambda rid, root, bm25, **k: queued.append(rid))
+
+    resp = d.cmd_search({"repo": str(repo), "query": "x"})
+    assert resp == {"ok": False, "status": "warming"}
+    assert queued == [reg.repo_id]   # self-heal queued the first index
+    d.queue.stop()
+
+
+def test_search_reports_index_error_on_model_load_failure(monkeypatch, tmp_path):
+    """If the embedding model fails to load, search must surface 'index_error'
+    rather than polling 'warming' to a dead-end timeout with a useless remedy."""
+    from engine import daemon as daemon_mod, registry
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    repo = make_repo(tmp_path)
+    registry.enable(repo)
+
+    d = daemon_mod.Daemon()
+    monkeypatch.setattr(d, "_ensure_model_async", lambda: None)  # don't retry
+    with d.lock:
+        d.model_error = "OSError: no network"   # model_ready stays unset
+
+    resp = d.cmd_search({"repo": str(repo), "query": "x"})
+    assert resp["status"] == "index_error"
+    assert "embedding model unavailable" in resp["error"]
+    assert "OSError: no network" in resp["error"]
+    d.queue.stop()
+
+
+def test_unwatch_all_stops_and_closes_whole_family(monkeypatch, tmp_path):
+    """disable is per-family: unwatch_all must stop every watch and close every
+    RepoIndex for the rids the CLI passes (not just the cwd's), and report the
+    queue drained so the CLI may purge — closing the sibling-worktree leak."""
+    from engine import daemon as daemon_mod, registry
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    repo = make_repo(tmp_path)
+    registry.enable(repo)
+
+    d = daemon_mod.Daemon()
+
+    class FakeWatch:
+        def __init__(self):
+            self.stopped = False
+        def stop(self):
+            self.stopped = True
+
+    class FakeRI:
+        def __init__(self):
+            self.closed = False
+        def close(self):
+            self.closed = True
+
+    w_a, w_b = FakeWatch(), FakeWatch()
+    ri_a, ri_b = FakeRI(), FakeRI()
+    with d.lock:
+        d.watches["ridA"] = {"path": str(repo), "sessions": {1}, "watch": w_a}
+        d.watches["ridB"] = {"path": str(repo), "sessions": {2}, "watch": w_b}
+        d.indexes["ridA"] = ri_a
+        d.indexes["ridB"] = ri_b
+
+    resp = d.cmd_unwatch_all({"repo": str(repo), "rids": ["ridA", "ridB"]})
+    assert resp == {"ok": True}       # queue idle -> drained
+    assert w_a.stopped and w_b.stopped
+    assert ri_a.closed and ri_b.closed
+    assert not d.watches and "ridA" not in d.indexes and "ridB" not in d.indexes
     d.queue.stop()
 
 

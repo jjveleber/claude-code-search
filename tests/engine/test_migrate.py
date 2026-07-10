@@ -85,6 +85,22 @@ def test_tracked_files_skipped(tmp_path):
     assert not (repo / "watch_index.py").exists()  # untracked ones still go
 
 
+def test_tracked_claude_md_not_deleted(tmp_path):
+    # A tracked .claude/CLAUDE.md that would be fully emptied by removing the
+    # protocol block must NOT be silently deleted (same skip-tracked invariant
+    # the OLD_FILES loop honors).
+    repo = make_repo(tmp_path)
+    old_install(repo)
+    (repo / ".claude" / "CLAUDE.md").write_text(
+        "## Precision Protocol\n\n**Rule:** Before using `Read`...\n")  # only the block
+    _git("add", "-f", ".claude/CLAUDE.md", cwd=repo)   # bypass old_install's ignore
+    _git("-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-m", "track claude md", cwd=repo)
+    report = migrate.migrate(repo)
+    assert (repo / ".claude" / "CLAUDE.md").exists()
+    assert report["claude_md_cleaned"] is False
+
+
 def test_dry_run_changes_nothing(tmp_path):
     repo = make_repo(tmp_path)
     old_install(repo)

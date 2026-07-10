@@ -6,6 +6,7 @@ import re
 import shutil
 import signal
 import subprocess
+import time
 from pathlib import Path
 
 from engine import paths, repoident
@@ -60,6 +61,16 @@ def _kill_old_processes(repo: Path, dry_run: bool) -> list[int]:
                     os.kill(pid, signal.SIGTERM)
                 except OSError:
                     continue
+                # Wait (bounded) for it to actually exit before the caller
+                # trashes its pid/log/chroma_db — a still-dying process can
+                # recreate those files or write mid-move, leaving fresh litter
+                # after "cleanup".
+                for _ in range(30):
+                    try:
+                        os.kill(pid, 0)
+                    except OSError:
+                        break
+                    time.sleep(0.1)
             killed.append(pid)
     return killed
 
@@ -71,6 +82,8 @@ def _clean_claude_md(repo: Path, dry_run: bool) -> bool:
     text = p.read_text()
     if "**Rule:** Before using" not in text:
         return False
+    if _is_tracked(repo, ".claude/CLAUDE.md"):
+        return False   # never modify/delete a tracked file (see OLD_FILES loop)
     # drop from '## Precision Protocol' up to the next '## ' or EOF
     new = re.sub(r"## Precision Protocol.*?(?=\n## |\Z)", "", text,
                  flags=re.DOTALL)
@@ -87,6 +100,8 @@ def _clean_settings(repo: Path, dry_run: bool) -> bool:
     p = repo / ".claude" / "settings.local.json"
     if not p.exists():
         return False
+    if _is_tracked(repo, ".claude/settings.local.json"):
+        return False   # never modify/delete a tracked file (see OLD_FILES loop)
     try:
         data = json.loads(p.read_text())
     except json.JSONDecodeError:
@@ -175,9 +190,13 @@ def migrate(repo: Path, dry_run: bool = False) -> dict:
         if rel == ".venv-code-search":
             # No ignore_errors: a delete that fails must surface, like the
             # trash-move branch below — never report "deleted" for a venv
-            # still on disk.
+            # still on disk. A cross-device move can leave .venv-code-search
+            # as a symlink, on which rmtree raises — unlink those instead.
             if not dry_run:
-                shutil.rmtree(target)
+                if target.is_symlink():
+                    target.unlink()
+                else:
+                    shutil.rmtree(target)
             report["deleted"].append(rel)
         else:
             report["trashed"].append(rel)

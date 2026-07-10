@@ -59,6 +59,36 @@ def test_disable_purge_removes_index(tmp_path, monkeypatch):
     assert not idx.exists()
 
 
+def _enabled_with_index(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path)
+    monkeypatch.chdir(repo)
+    r = registry.enable(repo)
+    idx = paths.index_dir(r.repo_id)
+    idx.mkdir(parents=True)
+    (idx / "chroma.sqlite3").write_text("x")
+    return idx
+
+
+def test_disable_purge_withheld_when_daemon_busy(tmp_path, monkeypatch, capsys):
+    # Daemon still draining its index queue -> unwatch_all returns ok=False.
+    # Purging now would rmtree an index the worker is still writing, so withhold.
+    idx = _enabled_with_index(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli.client, "unwatch_all",
+                        lambda *a: {"ok": False, "error": "queue busy"})
+    assert cli.main(["disable", "--purge"]) == 1
+    assert idx.exists()
+    assert "retry" in capsys.readouterr().err.lower()
+
+
+def test_disable_purge_proceeds_when_daemon_down(tmp_path, monkeypatch):
+    # No daemon => nothing can be writing the index => purge is safe.
+    idx = _enabled_with_index(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli.client, "unwatch_all",
+                        lambda *a: {"ok": False, "error": "daemon not running"})
+    assert cli.main(["disable", "--purge"]) == 0
+    assert not idx.exists()
+
+
 def _raise_unavail(*a, **k):
     raise cli.client.DaemonUnavailable("down")
 

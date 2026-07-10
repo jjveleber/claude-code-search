@@ -56,6 +56,7 @@ class IndexQueue:
         self._pending = set()
         self._active_repo = None   # repo_id the worker is currently indexing
         self._failed = {}          # repo_id -> error string, last index failed
+        self._succeeded = set()    # repo_ids that completed >=1 index this run
         self._lock = threading.Lock()
         self._stop = object()
         self._worker = threading.Thread(target=self._run, daemon=True)
@@ -91,6 +92,7 @@ class IndexQueue:
             else:
                 with self._lock:
                     self._failed.pop(repo_id, None)
+                    self._succeeded.add(repo_id)
                     self._active_repo = None
 
     def stop(self):
@@ -116,6 +118,13 @@ class IndexQueue:
         run (if any) succeeded."""
         with self._lock:
             return self._failed.get(repo_id)
+
+    def succeeded(self, repo_id):
+        """True if repo_id has completed at least one index in this daemon's
+        lifetime. Lets a search tell 'indexed, genuinely empty' from 'never
+        indexed this run' (e.g. after a daemon restart) without persistence."""
+        with self._lock:
+            return repo_id in self._succeeded
 
 
 class _Handler(FileSystemEventHandler):

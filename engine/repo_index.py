@@ -1,6 +1,7 @@
 """Root-parameterized index + search. Heavy imports allowed here."""
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -20,6 +21,15 @@ _DOC_LANGS = frozenset({"restructuredtext", "markdown"})
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write via a temp file + os.replace so a concurrent reader (a live
+    search loading bm25_corpus.json) never sees a truncated file, and a crash
+    mid-write can't leave a corrupt/shrunken corpus on disk."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
 
 
 def _tokenize_for_bm25(text):
@@ -173,8 +183,8 @@ class RepoIndex:
         # Write model name and language counts so search() can load the same
         # embedding function and apply the correct language filter.
         self.index_dir.mkdir(parents=True, exist_ok=True)
-        (self.index_dir / "model.txt").write_text(model_name)
-        (self.index_dir / "langs.json").write_text(json.dumps(dict(lang_counts)))
+        _atomic_write(self.index_dir / "model.txt", model_name)
+        _atomic_write(self.index_dir / "langs.json", json.dumps(dict(lang_counts)))
 
         emb_fn = self._emb_fn()
 
@@ -257,7 +267,7 @@ class RepoIndex:
         _batch_upsert(collection, docs_to_upsert, metas_to_upsert, ids_to_upsert, embeddings)
         _batch_delete(collection, to_delete)
 
-        (self.index_dir / "langs.json").write_text(json.dumps(dict(lang_counts)))
+        _atomic_write(self.index_dir / "langs.json", json.dumps(dict(lang_counts)))
 
         if use_bm25:
             # Update BM25 corpus (incremental: load existing, remove deleted, add/update upserted)
@@ -287,7 +297,7 @@ class RepoIndex:
                     _off += _page
                 print()
 
-            bm25_corpus_path.write_text(json.dumps(bm25_corpus))
+            _atomic_write(bm25_corpus_path, json.dumps(bm25_corpus))
             bm25_msg = f" | BM25 corpus: {len(bm25_corpus):,} chunks"
         else:
             bm25_msg = " | BM25: disabled"

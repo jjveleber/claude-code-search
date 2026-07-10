@@ -53,8 +53,9 @@ class Daemon:
         self.watches = {}    # repo_id -> {"path", "sessions": set[int], "watch": RepoWatch}
         self.indexes = {}    # repo_id -> RepoIndex
         self.queue = IndexQueue()
-        self.model_ready = threading.Event()
+        self.model_ready = threading.Event()   # set only on successful load
         self.model_loading = False
+        self.model_error = None                # last load failure, or None
         self.shutting_down = threading.Event()
         self._handlers = set()                 # live request-handler threads
         self._handlers_lock = threading.Lock()
@@ -65,17 +66,35 @@ class Daemon:
             if self.model_ready.is_set() or self.model_loading:
                 return
             self.model_loading = True
+            self.model_error = None   # a fresh attempt supersedes a past failure
 
         def load():
             try:
                 from engine.embedding import HFCodeEmbeddingFunction
                 HFCodeEmbeddingFunction("nomic-ai/CodeRankEmbed")
-                self.model_ready.set()
-            except Exception as e:
                 with self.lock:
                     self.model_loading = False
-                print(f"[model-load] {type(e).__name__}: {e}", flush=True)
+                self.model_ready.set()
+            except Exception as e:
+                msg = f"{type(e).__name__}: {e}"
+                print(f"[model-load] {msg}", flush=True)
+                # Record the error and clear `loading` so the next demand
+                # retries, and so index jobs waiting on the model fail fast
+                # instead of blocking on model_ready forever (which would wedge
+                # the single worker and pin the daemon alive).
+                with self.lock:
+                    self.model_loading = False
+                    self.model_error = msg
         threading.Thread(target=load, daemon=True).start()
+
+    def _await_model(self):
+        """Block until the model loads; raise if the load failed so the caller
+        (an index job) surfaces it as a per-repo failure rather than hanging."""
+        while not self.model_ready.wait(timeout=2.0):
+            with self.lock:
+                err = self.model_error
+            if err is not None:
+                raise RuntimeError(f"embedding model unavailable: {err}")
 
     # ---- watch table persistence --------------------------------------
     def _persist_watches(self):
@@ -111,7 +130,13 @@ class Daemon:
         for t in threads:
             remaining = deadline - time.time()
             if remaining > 0:
-                t.join(timeout=remaining)
+                try:
+                    t.join(timeout=remaining)
+                except RuntimeError:
+                    # thread was registered but start() raised (fd/thread
+                    # exhaustion) — joining a never-started thread raises;
+                    # don't let it abort the rest of the shutdown sequence
+                    pass
 
     # ---- repo helpers --------------------------------------------------
     def _repo_index(self, rid: str, root: Path) -> RepoIndex:
@@ -137,7 +162,7 @@ class Daemon:
             my_idx = paths.index_dir(rid)
             if seed_from is not None and seed_from.exists() and not my_idx.exists():
                 clone_index(seed_from, my_idx)
-            self.model_ready.wait()
+            self._await_model()   # raises if the model failed to load
             ri.index(use_bm25=bm25)
             ri.invalidate_caches()
         self.queue.submit(rid, job)
@@ -149,6 +174,11 @@ class Daemon:
         r = registry.resolve(root)
         if not (r.family_enabled and r.registered):
             return
+        with self.lock:
+            if rid not in self.watches:
+                return   # watch was removed (unwatch/prune) while this
+                         # debounce flush was in flight — don't resurrect a
+                         # RepoIndex and reindex a repo nobody is watching
         self._queue_index(rid, root, bm25)
 
     # ---- commands -------------------------------------------------------
@@ -221,51 +251,67 @@ class Daemon:
         above can't remove the watch; leaving it live lets on_change keep
         queuing indexes after disable/purge."""
         root = Path(req["repo"])
-        rid = repoident.repo_id(repoident.repo_root(root) or root)
+        # `disable` is per-family and the CLI purges every worktree's index
+        # dir, so stop/close every rid in the family — not just the cwd's.
+        # The CLI passes them (from registry.disable); fall back to the cwd rid.
+        rids = req.get("rids") \
+            or [repoident.repo_id(repoident.repo_root(root) or root)]
+        to_stop = []
         with self.lock:
-            w = self.watches.pop(rid, None)
+            for rid in rids:
+                w = self.watches.pop(rid, None)
+                if w:
+                    to_stop.append(w["watch"])
             self._persist_watches()
-        if w:
-            w["watch"].stop()
-            # A job that already passed the start-of-job registry re-check
-            # (see _queue_index) and is mid-ri.index() when disable lands is
-            # not stopped by RepoWatch.stop() above — that only blocks NEW
-            # jobs from being queued via on_change. If we closed the
-            # RepoIndex (or let the CLI's rmtree run) while that job is
-            # still writing through it, we'd get a torn write or a purged
-            # dir that gets partially repopulated. So: wait for the queue to
-            # go idle before closing.
-            #
-            # disable is rare and not latency-critical, so waiting for ANY
-            # active/pending job (not strictly this rid) is an acceptable
-            # simplification over threading an active-rid through
-            # IndexQueue — it's a single global worker, so "queue idle" is
-            # cheap to observe and still guarantees ri.close() below can
-            # never race a live write for this repo. Bounded so a
-            # genuinely stuck worker can't hang disable forever; generous
-            # enough to cover a job parked in model_ready.wait(). Must NOT
-            # hold daemon.lock while waiting — other commands (search,
-            # status, other watches) need it in the meantime.
-            deadline = time.time() + 120
-            while (self.queue.active() or self.queue.pending()) \
-                    and time.time() < deadline:
-                time.sleep(0.1)
-            if self.queue.active() or self.queue.pending():
-                print("[unwatch_all] timed out waiting for index queue to "
-                      "drain; proceeding anyway", flush=True)
-            with self.lock:
-                ri = self.indexes.pop(rid, None)
+        # Stop observers outside daemon.lock (join can block; see #35).
+        for w in to_stop:
+            w.stop()
+        # A job that already passed the start-of-job registry re-check (see
+        # _queue_index) and is mid-ri.index() when disable lands is not stopped
+        # by RepoWatch.stop() above. If the CLI's rmtree ran while that job is
+        # still writing, we'd get a torn write / a purged dir partially
+        # repopulated — so wait for the single global worker to go idle before
+        # returning ok. The CLI purges ONLY when we report drained. This must
+        # run even when no watch existed here: a sibling worktree can trigger
+        # disable while the main worktree's first index is mid-write on the
+        # shared worker. Bounded so a stuck worker can't hang disable forever;
+        # generous enough to cover a job parked awaiting the model. Must NOT
+        # hold daemon.lock while waiting — other commands need it meanwhile.
+        deadline = time.time() + 120
+        while (self.queue.active() or self.queue.pending()) \
+                and time.time() < deadline:
+            time.sleep(0.1)
+        drained = not (self.queue.active() or self.queue.pending())
+        if not drained:
+            print("[unwatch_all] timed out waiting for index queue to drain; "
+                  "purge withheld", flush=True)
+        with self.lock:
+            to_close = [self.indexes.pop(rid, None) for rid in rids]
+        for ri in to_close:
             if ri:
                 ri.close()
-        return {"ok": True}
+        return {"ok": drained}
 
     def cmd_search(self, req):
         root = Path(req["repo"])
         r = registry.resolve(root)
-        if not r.family_enabled or not r.registered:
+        if not r.family_enabled:
             return {"ok": False, "error": "not enabled"}
+        if not r.registered:
+            # A worktree searched before its session hook watched it: register
+            # it here (mirrors cmd_watch) so an enabled family never reports
+            # the contradictory "not enabled"; the count==0 path below queues
+            # its first index.
+            r = registry.register_worktree(root)
         self._ensure_model_async()
         if not self.model_ready.is_set():
+            with self.lock:
+                err = self.model_error
+            if err is not None:
+                # Model load failed (e.g. offline first download): don't leave
+                # the user polling "warming" to a dead-end timeout.
+                return {"ok": False, "status": "index_error",
+                        "error": f"embedding model unavailable: {err}"}
             return {"ok": False, "status": "warming"}
         ri = self._repo_index(r.repo_id, repoident.repo_root(root))
         if ri.count() == 0:
@@ -279,7 +325,14 @@ class Daemon:
             err = self.queue.failed(r.repo_id)
             if err:
                 return {"ok": False, "status": "index_error", "error": err}
-            return {"ok": False, "status": "empty"}
+            if self.queue.succeeded(r.repo_id):
+                # We indexed it and it really has no indexable files.
+                return {"ok": False, "status": "empty"}
+            # count==0 but never indexed this daemon lifetime (fresh restart,
+            # or a just-registered worktree). Self-heal: queue the first index
+            # rather than falsely reporting "empty" with no remedy.
+            self._queue_index(r.repo_id, repoident.repo_root(root), r.bm25)
+            return {"ok": False, "status": "warming"}
         t0 = time.time()
         try:
             results = ri.search(
@@ -289,7 +342,14 @@ class Daemon:
         except IndexMissingError:
             return {"ok": False, "status": "warming"}
         self._log_search(r.repo_id, req, results, time.time() - t0)
-        return {"ok": True, "results": results}
+        resp = {"ok": True, "results": results}
+        err = self.queue.failed(r.repo_id)
+        if err:
+            # Index is populated and usable, but the most recent (re)index
+            # attempt failed — surface it; results may be stale.
+            resp["warning"] = (f"last index update failed ({err}); results may "
+                               f"be stale — run 'code-search reindex'")
+        return resp
 
     def cmd_reindex(self, req):
         root = Path(req["repo"])
