@@ -173,9 +173,12 @@ def migrate(repo: Path, dry_run: bool = False) -> dict:
             report["skipped_tracked"].append(rel)
             continue
         if rel == ".venv-code-search":
-            report["deleted"].append(rel)
+            # No ignore_errors: a delete that fails must surface, like the
+            # trash-move branch below — never report "deleted" for a venv
+            # still on disk.
             if not dry_run:
-                shutil.rmtree(target, ignore_errors=True)
+                shutil.rmtree(target)
+            report["deleted"].append(rel)
         else:
             report["trashed"].append(rel)
             if not dry_run:
