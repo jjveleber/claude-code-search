@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Launcher: stdlib CLI runs under any python3; only the daemon needs the venv.
+set -euo pipefail
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="${PLUGIN_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m engine.cli "$@"

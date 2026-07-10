@@ -1,6 +1,6 @@
 # code-search
 
-Semantic code search for any project. Install with one command — Claude can then find relevant code by natural language query instead of grep/glob.
+Semantic code search for Claude Code. Install once as a plugin — Claude can then find relevant code by natural language query instead of grep/glob, in any repo you enable.
 
 ## Prerequisites
 
@@ -9,67 +9,34 @@ Semantic code search for any project. Install with one command — Claude can th
 
 ## Install
 
-### Latest (recommended)
-
-Run from the root of any project:
+Install the plugin (loads it for the current Claude Code session):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/install.sh | bash
+claude --plugin-dir /path/to/claude-code-search
 ```
 
-### Specific Release
+This works today from a local clone. A marketplace listing (`/plugin marketplace add ...` + `/plugin install code-search@...`) is the intended distribution route once this repo publishes a `.claude-plugin/marketplace.json` catalog — not yet available.
+
+Once the plugin is loaded, bootstrap the central venv:
 
 ```bash
-curl -fsSL https://github.com/jjveleber/claude-code-search/releases/download/v1.0.0/install.sh | bash
+code-search setup
 ```
 
-### Specific Branch
+This installs the shared dependencies (chromadb, sentence-transformers/torch, watchdog, etc.) into `~/.code-search/venv` — several GB on first run, so expect it to take a few minutes. You can skip this step and let the first `code-search enable` run it for you instead.
+
+Then, per repo you want indexed:
 
 ```bash
-CODE_SEARCH_BRANCH=develop \
-  curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/develop/install.sh | bash
+/code-search enable
 ```
 
-This will:
-- Detect or create a `.venv` in your project and install `chromadb` and `watchdog` into it
-- Copy `index_project.py`, `search_code.py`, `watch_index.py`, `chunker.py`, and `search_server.py` into your project root
-- Add `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.search_server.pid`, `.claude/settings.local.json`, and `.claude/CLAUDE.md` to your `.gitignore`
-- Write the Precision Protocol block to `.claude/CLAUDE.md` (local-only, not committed)
-- Write a `UserPromptSubmit` hook to `.claude/settings.local.json` (local-only, not committed) that auto-starts the watcher at the beginning of each Claude session
-- Build the initial search index
+This registers the repo centrally and queues the first index build. Nothing is written into the repo itself.
 
-Only the five Python scripts and the `.gitignore` additions are committed. The Precision Protocol and hook are local to each developer who runs the installer — teammates who pull the repo are not affected until they run it themselves.
-
-The first index run is proportional to repo size and may take a minute or more on large repos.
-
-## Re-index
-
-The watcher (`watch_index.py`) runs in the background during Claude sessions and re-indexes automatically whenever files change. To re-index manually:
+## Usage
 
 ```bash
-.venv/bin/python3 index_project.py
-```
-
-The indexer is incremental — only changed chunks are re-embedded, so re-runs are fast.
-
-**BM25 hybrid search** is opt-in at both index and query time. Pass `--bm25` to build a keyword corpus alongside the vector index:
-
-```bash
-.venv/bin/python3 index_project.py --bm25
-```
-
-Then pass `--bm25` at query time to use Reciprocal Rank Fusion to merge semantic and keyword results:
-
-```bash
-.venv/bin/python3 search_code.py --bm25 "database connection"
-```
-
-To remove the BM25 corpus and revert to semantic-only: `index_project.py --disable-bm25`.
-
-## Search
-
-```bash
-.venv/bin/python3 search_code.py "database connection"
+code-search search "database connection"
 ```
 
 Returns the top 5 most relevant code chunks with file paths and line numbers.
@@ -77,150 +44,60 @@ Returns the top 5 most relevant code chunks with file paths and line numbers.
 | Flag | Description |
 |---|---|
 | `--top N` | Return top N results (default: 5) |
-| `--bm25` | Enable BM25 hybrid ranking (requires index built with `--bm25`) |
+| `--bm25` | Enable BM25 hybrid ranking (requires the repo enabled with `--bm25`) |
 | `--all` | Include documentation and generated files in results (default: prod and test only) |
 
-## Persistent Search Server
+A `SessionStart` hook handles the rest automatically: it registers/watches the current repo with the central daemon, triggers a catch-up incremental index if files changed since last session, and injects the Precision Protocol (the "search before grep" rule) into context. There is nothing to start or stop manually.
 
-`search_server.py` is an optional background process that loads the embedding model once and serves search requests over a Unix socket. This eliminates the 3–7s cold-load penalty on every `search_code.py` call.
+**Git worktrees** are auto-enabled: the first session in a worktree of an already-enabled repo registers that worktree with its own index, seeded by cloning the main worktree's index and then catch-up indexing — so it's ready in seconds instead of a full rebuild.
 
-```bash
-.venv/bin/python3 search_server.py &
-```
-
-`search_code.py` auto-detects the server socket and routes to it when available, falling back to direct execution silently. The server uses a project-specific socket in `/tmp/` and a `.search_server.pid` lock file in the project root (gitignored).
-
-> **Note:** Unix sockets require a native Linux filesystem. On WSL2 with the project under `/mnt/c/`, the socket still works because it lives in `/tmp/`.
-
-## Search Usage Tracking
-
-**Goal:** Understand when and why semantic search is used (or should have been used) in superpowers workflows.
-
-### How It Works
-
-1. **Logging:** `search_code.py` logs every invocation to `logs/search_usage.jsonl`
-2. **State Tracking:** Post-search hook sets `LAST_SEARCH_TIME` env var
-3. **Compliance Monitoring:** Pre-tool hook detects violations of Precision Protocol
-4. **Analytics:** `tools/analyze_search_usage.py` reports compliance rates, trends, breakdowns
-
-### Viewing Analytics
+**BM25 hybrid search** is opt-in per repo. Enable it at registration time:
 
 ```bash
-# Full report
-python3 tools/analyze_search_usage.py
-
-# Last 7 days only
-python3 tools/analyze_search_usage.py --period 7
-
-# Filter by skill
-python3 tools/analyze_search_usage.py --skill debugging
-
-# Filter by model
-python3 tools/analyze_search_usage.py --model claude-sonnet-4-5
+/code-search enable --bm25
 ```
 
-### Configuration
+Then pass `--bm25` at query time to use Reciprocal Rank Fusion to merge semantic and keyword results.
 
-Set in `~/.claude/settings.json`:
+## Data
 
-```json
-{
-  "searchUsageTracking": {
-    "warningsVisible": false,      // Show warnings to Claude (Phase 2)
-    "warningsBlocking": false,     // Block non-compliant tools (Phase 3)
-    "searchStateTTL": 300,         // Search state expires after 5 min
-    "recentPathTTL": 600           // Path tracking expires after 10 min
-  }
-}
-```
+Everything the tool owns lives under `~/.code-search` (override with `CODE_SEARCH_HOME`): the shared venv, the repo registry, per-repo/per-worktree indexes, daemon state, and logs. Enabled repos are otherwise untouched — no files, no `.gitignore` edits, no local settings.
 
-**Phase 1 (current):** Observation mode — violations logged, hidden from Claude  
-**Phase 2 (manual):** Set `warningsVisible: true` to show warnings  
-**Phase 3 (future):** Set `warningsBlocking: true` to enforce compliance
+> **Dotfile sync warning:** if you sync your home directory (chezmoi, a dotfiles repo, etc.), exclude `~/.code-search` — it holds multi-gigabyte venvs and machine-local indexes/sockets that should not travel between machines.
 
-### Log Files
+## Migrating from v1
 
-- `logs/search_usage.jsonl` — Search events (JSONL format)
-- `logs/search_warnings.log` — Precision Protocol violations (pipe-delimited)
-
-Both files are gitignored and safe for ad-hoc analysis with pandas/jq.
-
-## What Gets Installed
-
-| Item | Location | Committed? |
-|---|---|---|
-| `index_project.py` | project root | yes |
-| `search_code.py` | project root | yes |
-| `watch_index.py` | project root | yes |
-| `chunker.py` | project root | yes |
-| `search_server.py` | project root | yes |
-| `chroma_db/` | project root (created on first index) | no (gitignored) |
-| Precision Protocol block | `.claude/CLAUDE.md` | no (gitignored) |
-| `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.search_server.pid`, `.claude/settings.local.json`, `.claude/CLAUDE.md` entries | `.gitignore` | yes |
-| Auto-watcher `UserPromptSubmit` hook | `.claude/settings.local.json` | no (gitignored) |
-
-## Upgrade
-
-Re-running the installer does not overwrite existing files (local edits are preserved). To upgrade:
+The old per-repo install (five scripts copied into the repo root, a local `.venv-code-search`, hook entries in `.claude/settings.local.json`) is gone. To migrate each old repo, just run:
 
 ```bash
-rm index_project.py search_code.py watch_index.py chunker.py search_server.py
-curl -fsSL https://raw.githubusercontent.com/jjveleber/claude-code-search/main/install.sh | bash
+/code-search enable
 ```
+
+`enable` detects the old install, kills any leftover watcher/server processes, and cleans up:
+- Untracked old artifacts (`index_project.py`, `chroma_db/`, `.venv-code-search/`, pid/log files, etc.) are moved — not deleted — to `~/.code-search/trash/<repo_id>/` as a backup.
+- Git-tracked copies of the old scripts are **skipped**, not touched; `enable` prints them so you can `git rm` them yourself.
+- The Precision Protocol block is stripped from `.claude/CLAUDE.md`, the old hook entries are removed from `.claude/settings.local.json`, and the tool-specific lines are removed from `.gitignore`.
+
+The repo is then registered centrally and a fresh index is built.
 
 ## Uninstall
 
+Per repo:
+
 ```bash
-pkill -f watch_index.py || true
-pkill -f search_server.py || true
-rm -rf index_project.py search_code.py watch_index.py chunker.py search_server.py chroma_db/ .venv/ .watch_index.pid .watch_index.log .search_server.pid
+code-search disable          # stop watching, keep the index
+code-search disable --purge  # stop watching and delete the index
 ```
 
-> **Note:** Omit `.venv/` if it predated this installation (i.e. you brought your own virtual environment).
+Then remove the plugin (drop the `--plugin-dir` flag / remove the marketplace install), and if you want to reclaim disk space entirely:
 
-Then:
-- Remove `.claude/CLAUDE.md`
-- Remove the `chroma_db/`, `.watch_index.log`, `.watch_index.pid`, `.search_server.pid`, `.claude/settings.local.json`, and `.claude/CLAUDE.md` lines from `.gitignore`
-- Remove `.claude/settings.local.json` (or just the `UserPromptSubmit` hook entry with `watch_index.py` if you have other settings there)
-
-## Environment Variables
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `CODE_SEARCH_VERSION` | Install from specific release tag | `CODE_SEARCH_VERSION=v1.0.0 bash install.sh` |
-| `CODE_SEARCH_BRANCH` | Install from specific branch | `CODE_SEARCH_BRANCH=develop bash install.sh` |
-| `CODE_SEARCH_OWNER` | Install from a fork (override GitHub username) | `CODE_SEARCH_OWNER=myname bash install.sh` |
-| `CODE_SEARCH_LOCAL` | Install from local directory (for testing/development) | `CODE_SEARCH_LOCAL="." bash install.sh` |
-
-**Version priority:** `CODE_SEARCH_VERSION` > `CODE_SEARCH_BRANCH` > embedded version (from release asset) > `main` branch
+```bash
+rm -rf ~/.code-search
+```
 
 ## Releases
 
-Releases are tagged as `vX.Y.Z` (e.g., `v1.0.0`). Each release includes a pre-configured `install.sh` that automatically pulls files from that version.
-
-### For Users
-
-Install a specific release:
-
-```bash
-curl -fsSL https://github.com/jjveleber/claude-code-search/releases/download/v1.0.0/install.sh | bash
-```
-
-The release asset has the version embedded, so all files are pulled from the same release tag.
-
-### For Maintainers
-
-Create a release:
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-GitHub Actions automatically:
-1. Embeds the version in `install.sh`
-2. Creates a GitHub release
-3. Attaches the modified `install.sh` as a release asset
+Releases are tagged as `vX.Y.Z` (e.g., `v2.0.0`). As of v2.0.0 the tool is distributed as a Claude Code plugin rather than a downloadable `install.sh` — see Install above. The release workflow (`.github/workflows/release.yml`) still packages and publishes the old `install.sh` asset and is currently broken for that reason; it needs to be redesigned around plugin/marketplace publishing before the next tag push.
 
 ## How It Works
 
@@ -228,7 +105,7 @@ GitHub Actions automatically:
 2. Each file is split into ~60-line chunks with 10-line overlap, breaking at blank lines to keep functions intact
 3. Chunks are embedded using a model chosen by language: UniXcoder for systems languages (C/C++/Rust/Go/…), GraphCodeBERT for web/scripting, CodeBERT for config-only repos — no API key required, runs fully offline. Uses Apple MPS or AMD ROCm (auto-detected via `/dev/dxg` on WSL2) when available; otherwise CPU.
 4. On re-index, only chunks whose content has changed (SHA-256 hash comparison) are re-embedded
-5. `search_code.py` queries the vector DB (and BM25 corpus if present) and merges overlapping result chunks before printing
+5. `code-search search` queries the vector DB (and BM25 corpus if present) and merges overlapping result chunks before printing
 
 ## Eval
 

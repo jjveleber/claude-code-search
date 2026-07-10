@@ -8,14 +8,16 @@ from datetime import datetime
 from eval.report import capture_git_metadata, write_report
 
 _EVAL_ROOT = os.path.dirname(os.path.dirname(__file__))
+# BROKEN by central-install: search_code.py was deleted; run_unit_eval() below invokes a dead script.
 SEARCH_SCRIPT = os.path.join(_EVAL_ROOT, "search_code.py")
 BENCHMARK_DIR = os.path.join(os.path.dirname(__file__), "benchmarks")
-PYTHON = os.path.join(_EVAL_ROOT, ".venv", "bin", "python3")
+PYTHON = os.path.join(_EVAL_ROOT, ".venv-code-search", "bin", "python3")
 
 _MATCH_RE = re.compile(r"^MATCH \d+: (.+?)(?:\s+\[\w+\])? \(lines \d+-\d+\)")
 
 
 def parse_search_output(output):
+    # BROKEN by central-install: docstring/format below assume search_code.py's stdout; the engine daemon's format may differ.
     """Extract ranked file paths from search_code.py stdout."""
     paths = []
     for line in output.splitlines():
@@ -73,6 +75,9 @@ def load_benchmark(benchmark_file):
 
 def run_unit_eval(benchmark_file, top=5, config=None, repo_path=None):
     """Run unit eval against all benchmark entries. Returns a report dict."""
+    # BROKEN by central-install: this shells out to the per-repo search_code.py (deleted),
+    # both for the local repo (SEARCH_SCRIPT) and for repo_path targets below, and the
+    # error message below still references index_project.py (also deleted).
     entries = load_benchmark(benchmark_file)
     if config is None:
         config = {}

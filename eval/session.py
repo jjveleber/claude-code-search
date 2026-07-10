@@ -82,6 +82,8 @@ def compute_task_metrics(task_id, tool_calls, usage=None):
 
         elif tool == "Bash":
             cmd = call.get("cmd", "")
+            # BROKEN by central-install: search_code.py is deleted, so this string match never
+            # fires for the new `code-search search` command; search_calls/grep_fallbacks below undercount.
             if "search_code.py" in cmd:
                 search_calls += 1
                 search_seen = True

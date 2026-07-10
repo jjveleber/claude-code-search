@@ -1,0 +1,18 @@
+# Core dependencies for semantic code search
+
+# Embeddings and vector search
+chromadb==1.5.8
+sentence-transformers==5.4.1
+torch==2.11.0+rocm7.2
+
+# Tree-sitter semantic chunking
+# IMPORTANT: tree-sitter-languages 1.10.2 requires tree-sitter <0.22
+# See: https://github.com/grantjenks/py-tree-sitter-languages/issues
+tree-sitter==0.21.3
+tree-sitter-languages==1.10.2
+
+# File watching
+watchdog==6.0.0
+
+# Testing
+pytest==9.0.3

@@ -52,6 +52,8 @@ def _append(entry):
 
 
 def _parse_search_results(stdout):
+    # BROKEN by central-install: format below assumes search_code.py's stdout format,
+    # which no longer exists (deleted); the engine daemon's output format may differ.
     """Parse search_code.py stdout into ranked result list."""
     results = []
     rank = 0
@@ -92,6 +94,8 @@ def handle_post():
     if tool == "Bash":
         cmd = tool_input.get("command", "")
         entry["cmd"] = cmd
+        # BROKEN by central-install: search_code.py is deleted, so this string match never
+        # fires for the new `code-search search` command; result capture below is dead code.
         if "search_code.py" in cmd:
             stdout = tool_result.get("stdout", "") if isinstance(tool_result, dict) else str(tool_result)
             entry["results"] = _parse_search_results(stdout)
