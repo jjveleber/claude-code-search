@@ -63,7 +63,9 @@ Fold into related feature work, not standalone.
 ## Remaining after Wave 4 (all 4 waves DONE)
 1. ~~**#32 test debt** — write tests for the two live gaps above (setup_venv, CLI paths).~~ ✅ DONE (branch `test/issue-32-test-debt`; +9 setup_venv tests, +13 CLI tests; `tests/engine/` 92 green).
 2. **#31** — deferred, blocked on multi-model support. Kept open.
-3. **#27 (`feature/central-install`) → `main`** — the base branch is NOT yet merged; all 4 waves stack on it. Merge #27 to main, then re-target/close deferred items.
+3. **#27 (`feature/central-install`) → `main`** — the base branch is NOT yet merged; all 4 waves stack on it.
+   - **NEXT: adversarial review of PR #27 before merge. Reviewer model: Fable.** All Wave 1–4 fixes + #32 tests are now folded into this branch, so the review covers the whole central-install surface as it stands. Re-seed a cleared session: read this plan → `gh pr view 27` → `gh pr diff 27` → dispatch Fable adversarial reviewer.
+   - After review passes: merge #27 to main, then re-target/close deferred items (#31).
 
 ## Sequencing caveats
 - **#30 + #35 both touch daemon locking** — do them lock-order-aware (same person, ideally adjacent) to avoid re-touching twice.
