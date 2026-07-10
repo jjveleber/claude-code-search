@@ -94,6 +94,28 @@ def test_index_queue_active_while_job_runs():
     q.stop()
 
 
+def test_index_queue_records_and_clears_failure():
+    """A repo whose index run raises must be flagged via failed() rather
+    than silently dropped (which made search report a false 'empty' with
+    no retry). A subsequent successful run clears the flag."""
+    q = watcher.IndexQueue()
+    def boom():
+        raise ValueError("bad tree-sitter grammar")
+    assert q.failed("r1") is None
+    q.submit("r1", boom)
+    deadline = time.time() + 5
+    while q.failed("r1") is None and time.time() < deadline:
+        time.sleep(0.02)
+    assert q.failed("r1") == "ValueError: bad tree-sitter grammar"
+
+    q.submit("r1", lambda: None)
+    deadline = time.time() + 5
+    while q.failed("r1") is not None and time.time() < deadline:
+        time.sleep(0.02)
+    assert q.failed("r1") is None
+    q.stop()
+
+
 def test_repo_watch_stop_prevents_flush_already_in_flight(tmp_path):
     """Regression: threading.Timer.cancel() is a no-op once the timer's
     function has already started, so a debounce flush racing stop() could

@@ -276,6 +276,9 @@ class Daemon:
             if r.repo_id in self.queue.pending() \
                     or self.queue.active_repo() == r.repo_id:
                 return {"ok": False, "status": "warming"}
+            err = self.queue.failed(r.repo_id)
+            if err:
+                return {"ok": False, "status": "index_error", "error": err}
             return {"ok": False, "status": "empty"}
         t0 = time.time()
         try:

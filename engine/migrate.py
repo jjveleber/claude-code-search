@@ -1,4 +1,5 @@
-"""Old per-repo install cleanup. Stdlib only. Every removal is a move to trash."""
+"""Old per-repo install cleanup. Stdlib only. Venvs are deleted
+(reproducible); every other removal is a move to trash."""
 import json
 import os
 import re
@@ -98,7 +99,31 @@ def _clean_settings(repo: Path, dry_run: bool) -> bool:
     for container in (data, data.get("hooks", {})):
         for event in list(container):
             if event in ("UserPromptSubmit", "PreToolUse", "PostToolUse"):
-                kept = [e for e in container[event] if not is_ours(e)]
+                kept = []
+                for e in container[event]:
+                    # If entry has "hooks" key, filter at individual hook level
+                    if "hooks" in e:
+                        original_hooks = e.get("hooks", [])
+                        filtered_hooks = [
+                            hook for hook in original_hooks
+                            if not any(m in json.dumps(hook) for m in HOOK_MARKERS)
+                        ]
+                        if filtered_hooks:
+                            # Some hooks remain
+                            if len(filtered_hooks) != len(original_hooks):
+                                changed = True
+                            e["hooks"] = filtered_hooks
+                            kept.append(e)
+                        else:
+                            # All hooks removed; drop entry
+                            changed = True
+                    else:
+                        # No "hooks" key; use old check
+                        if not is_ours(e):
+                            kept.append(e)
+                        else:
+                            changed = True
+
                 if len(kept) != len(container[event]):
                     changed = True
                 if kept:
@@ -133,7 +158,7 @@ def migrate(repo: Path, dry_run: bool = False) -> dict:
     repo = Path(repo).resolve()
     report = {"evidence": False, "trashed": [], "skipped_tracked": [],
               "settings_cleaned": False, "claude_md_cleaned": False,
-              "gitignore_cleaned": [], "killed": []}
+              "gitignore_cleaned": [], "deleted": [], "killed": []}
     if not detect_old_install(repo):
         return report
     report["evidence"] = True
@@ -147,16 +172,21 @@ def migrate(repo: Path, dry_run: bool = False) -> dict:
         if _is_tracked(repo, rel):
             report["skipped_tracked"].append(rel)
             continue
-        report["trashed"].append(rel)
-        if not dry_run:
-            dest = trash / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            if dest.exists():
-                n = 1
-                while (candidate := dest.with_name(f"{dest.name}.{n}")).exists():
-                    n += 1
-                dest = candidate
-            shutil.move(str(target), str(dest))
+        if rel == ".venv-code-search":
+            report["deleted"].append(rel)
+            if not dry_run:
+                shutil.rmtree(target, ignore_errors=True)
+        else:
+            report["trashed"].append(rel)
+            if not dry_run:
+                dest = trash / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.exists():
+                    n = 1
+                    while (candidate := dest.with_name(f"{dest.name}.{n}")).exists():
+                        n += 1
+                    dest = candidate
+                shutil.move(str(target), str(dest))
     hooks_dir = repo / "hooks"
     if not dry_run and hooks_dir.is_dir() and not any(hooks_dir.iterdir()):
         hooks_dir.rmdir()

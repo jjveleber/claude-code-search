@@ -46,11 +46,12 @@ Highest judgment. Each fix needs a real-daemon test. Aware of lock-order with #3
 - [x] #36 _load_bm25 flag-before-corpus, no lock. Double-checked lock; build into local, set flag LAST.
 - [x] #37 daemon shutdown kills handler threads mid-response. Track handler threads; drain_handlers() bounded-join at shutdown before teardown.
 
-## Wave 4 — latent / degenerate today  ·  model: Haiku/Sonnet, opportunistic
+## Wave 4 — latent / degenerate today  ·  model: Haiku/Sonnet, opportunistic  ·  🔶 IN REVIEW (branch wave4-followups)
 Fold into related feature work, not standalone.
-- [ ] #31 warmup hardcodes CodeRankEmbed — fix WITH multi-model support, not before.
-- [ ] #34 migrate _clean_settings whole-block match — unreachable w/ real installer.
-- [ ] #39 migrate cross-device venv move — delete (reproducible), don't move.
+- [ ] #31 warmup hardcodes CodeRankEmbed — **DEFERRED, kept open:** blocked on multi-model support (only CodeRankEmbed exists); fix WITH it, not before.
+- [x] #34 migrate _clean_settings whole-block match — now filters per-hook-command; co-mingled user hook in same block survives. (Haiku)
+- [x] #39 migrate cross-device venv move — `.venv-code-search` now `rmtree`'d (reproducible) not trashed; new `report["deleted"]`. (Haiku)
+- [x] Wave 2 index-failure follow-up (plan line 41): first index raising reported false `empty`. IndexQueue now tracks `_failed`; cmd_search returns new `index_error` status; cli points at reindex. Race: failure recorded + active_repo cleared in one lock section. (Sonnet)
 
 ## Cross-cutting
 - #32 test debt: **no standalone pass** — write the missing test as part of each wave (setup_venv, CLI paths, prune/idle-exit). Close #32 when the residue is empty or keep as tracking.

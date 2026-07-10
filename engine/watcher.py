@@ -55,6 +55,7 @@ class IndexQueue:
         self._q = queue.Queue()
         self._pending = set()
         self._active_repo = None   # repo_id the worker is currently indexing
+        self._failed = {}          # repo_id -> error string, last index failed
         self._lock = threading.Lock()
         self._stop = object()
         self._worker = threading.Thread(target=self._run, daemon=True)
@@ -81,8 +82,15 @@ class IndexQueue:
             except Exception as e:
                 print(f"[index-queue] {repo_id}: {type(e).__name__}: {e}",
                       flush=True)
-            finally:
+                # Record the failure in the SAME locked section that clears
+                # active_repo, so a search racing this can never observe
+                # "not active, not pending, not failed" (false "empty").
                 with self._lock:
+                    self._failed[repo_id] = f"{type(e).__name__}: {e}"
+                    self._active_repo = None
+            else:
+                with self._lock:
+                    self._failed.pop(repo_id, None)
                     self._active_repo = None
 
     def stop(self):
@@ -102,6 +110,12 @@ class IndexQueue:
         this lets a caller ask about a SPECIFIC repo rather than "any job"."""
         with self._lock:
             return self._active_repo
+
+    def failed(self, repo_id):
+        """Error string from repo_id's last index run, or None if its last
+        run (if any) succeeded."""
+        with self._lock:
+            return self._failed.get(repo_id)
 
 
 class _Handler(FileSystemEventHandler):

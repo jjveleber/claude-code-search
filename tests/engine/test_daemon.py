@@ -246,6 +246,31 @@ def test_search_returns_empty_for_genuinely_empty_repo(monkeypatch, tmp_path):
     d.queue.stop()
 
 
+def test_search_reports_index_error_when_first_index_raised(monkeypatch, tmp_path):
+    """A repo whose first index run RAISED must not be reported as
+    genuinely 'empty' (which claims 'no indexable files' and offers no
+    retry) — it must surface as 'index_error' instead."""
+    from engine import daemon as daemon_mod, registry
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    repo = make_repo(tmp_path)
+    reg = registry.enable(repo)
+
+    d = daemon_mod.Daemon()
+    d.model_ready.set()
+
+    class FakeRI:
+        def count(self):
+            return 0
+
+    d.indexes[reg.repo_id] = FakeRI()
+    d.queue._failed[reg.repo_id] = "ValueError: bad tree-sitter grammar"
+
+    resp = d.cmd_search({"repo": str(repo), "query": "x"})
+    assert resp == {"ok": False, "status": "index_error",
+                     "error": "ValueError: bad tree-sitter grammar"}
+    d.queue.stop()
+
+
 def test_unwatch_all_drains_active_index_job_before_closing(monkeypatch, tmp_path):
     """A job that already passed the start-of-job disabled-check and is
     mid-write when disable lands must finish before cmd_unwatch_all closes
