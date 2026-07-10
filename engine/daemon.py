@@ -194,6 +194,7 @@ class Daemon:
         rid = repoident.repo_id(repoident.repo_root(root) or root)
         pid = int(req["session_pid"])
         to_stop = []
+        to_close = []
         with self.lock:
             w = self.watches.get(rid)
             if w:
@@ -203,10 +204,14 @@ class Daemon:
                     del self.watches[rid]
                     ri = self.indexes.pop(rid, None)
                     if ri:
-                        ri.close()
+                        to_close.append(ri)
                 self._persist_watches()
+        # close/stop outside daemon.lock: close() -> invalidate_caches() can
+        # block on _bm25_lock behind a live search's BM25 build (see #35).
         for w in to_stop:
             w.stop()
+        for ri in to_close:
+            ri.close()
         return {"ok": True}
 
     def cmd_unwatch_all(self, req):
@@ -325,6 +330,7 @@ class Daemon:
         idle_since = time.time()
         while not self.shutting_down.wait(PRUNE_INTERVAL):
             to_stop = []
+            to_close = []
             with self.lock:
                 for rid in list(self.watches):
                     w = self.watches[rid]
@@ -334,11 +340,15 @@ class Daemon:
                         del self.watches[rid]
                         ri = self.indexes.pop(rid, None)
                         if ri:
-                            ri.close()
+                            to_close.append(ri)
                 self._persist_watches()
                 empty = not self.watches
+            # close/stop outside daemon.lock: close() -> invalidate_caches()
+            # can block on _bm25_lock behind a live search's BM25 build (#35).
             for w in to_stop:
                 w.stop()
+            for ri in to_close:
+                ri.close()
             # A pending/active index job must block idle-exit even with no
             # watches left: RepoIndex.index() computes all embeddings before
             # the first upsert, so killing it mid-job discards everything
