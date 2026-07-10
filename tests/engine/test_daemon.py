@@ -340,6 +340,117 @@ def test_queued_index_job_skipped_for_disabled_repo(monkeypatch, tmp_path):
         "index job ran against a disabled repo and recreated its index dir"
 
 
+def test_cmd_watch_clone_serialized_through_queue(monkeypatch, tmp_path):
+    """#30: cmd_watch must not clone a worktree's seed index inline (it can copy
+    a torn sqlite while the main repo is mid-reindex). The clone must be routed
+    through IndexQueue so it serializes behind the active index job."""
+    from engine import daemon as daemon_mod, registry, repoident
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    repo = make_repo(tmp_path)
+    (repo / "auth.py").write_text("def f(): pass\n")
+    _git("add", ".", cwd=repo)
+    r_main = registry.enable(repo)
+    wt = tmp_path / "wt"
+    _git("worktree", "add", str(wt), "-b", "feat", cwd=repo)
+
+    r_wt = registry.resolve(wt)
+    assert r_wt.repo_id != r_main.repo_id, "worktree must get a distinct repo_id"
+    main_idx = paths.index_dir(r_wt.main_repo_id)
+    main_idx.mkdir(parents=True)
+    (main_idx / "sentinel").write_text("x")   # proves the clone copied main's index
+    wt_idx = paths.index_dir(r_wt.repo_id)
+
+    d = daemon_mod.Daemon()
+    d.model_ready.set()
+    monkeypatch.setattr(daemon_mod.RepoIndex, "index",
+                        lambda self, use_bm25=False: {"upserted": 0, "deleted": 0})
+
+    # Occupy the single queue worker with a blocking job.
+    gate = threading.Event()
+    started = threading.Event()
+    d.queue.submit("blocker", lambda: (started.set(), gate.wait(5)))
+    assert started.wait(5), "blocker job never started"
+
+    d.cmd_watch({"repo": str(wt), "session_pid": os.getpid()})
+    assert not wt_idx.exists(), \
+        "clone ran inline in the handler instead of behind the queue's active job"
+
+    gate.set()
+    d.queue.stop()   # drain: blocker returns, then the seed-clone + catch-up runs
+    assert (wt_idx / "sentinel").exists(), \
+        "queued job never seeded the worktree index from main"
+
+    with d.lock:
+        stops = [w["watch"] for w in d.watches.values()]
+    for w in stops:
+        w.stop()
+
+
+def test_shutdown_drains_inflight_handler(monkeypatch, tmp_path):
+    """#37: on shutdown the daemon must wait for an in-flight request handler
+    to finish instead of tearing it down mid-response."""
+    from engine import daemon as daemon_mod
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    paths.ensure_home()
+    d = daemon_mod.Daemon()
+
+    entered = threading.Event()
+    gate = threading.Event()
+
+    def slow_handle(req):
+        entered.set()
+        gate.wait(5)
+        return {"ok": True}
+
+    monkeypatch.setattr(d, "handle", slow_handle)
+
+    sock = paths.socket_path()
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(sock))
+    srv.listen(8)
+    serve_t = threading.Thread(target=daemon_mod._serve, args=(d, srv), daemon=True)
+    serve_t.start()
+
+    c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    c.connect(str(sock))
+    c.sendall(b'{"cmd":"ping"}\n')
+    assert entered.wait(5), "handler never began"
+
+    d.shutting_down.set()
+    serve_t.join(5)                      # accept loop stops
+    with d._handlers_lock:
+        assert len(d._handlers) == 1, "in-flight handler not tracked"
+
+    threading.Thread(target=lambda: (time.sleep(0.2), gate.set()),
+                     daemon=True).start()
+    d.drain_handlers(time.time() + 5)
+    with d._handlers_lock:
+        assert d._handlers == set(), "handler still live after drain"
+    c.close()
+    srv.close()
+
+
+def test_drain_handlers_is_bounded(monkeypatch, tmp_path):
+    """#37: drain must not hang shutdown on a stuck handler — it honors a
+    deadline."""
+    from engine import daemon as daemon_mod
+    monkeypatch.setenv("CODE_SEARCH_HOME", str(tmp_path / "csh"))
+    d = daemon_mod.Daemon()
+
+    stuck = threading.Event()   # never set within the deadline
+    t = threading.Thread(target=lambda: stuck.wait(30), daemon=True)
+    with d._handlers_lock:
+        d._handlers.add(t)
+    t.start()
+
+    t0 = time.monotonic()
+    d.drain_handlers(time.time() + 0.5)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 3, "drain ignored its deadline"
+    stuck.set()
+    t.join(1)
+
+
 def test_restore_watches_on_startup(monkeypatch, tmp_path):
     """A pre-existing watches.json with a live pid must be restored, not crash
     the daemon (regression: restore_watches used to call a nonexistent
