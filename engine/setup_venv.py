@@ -16,6 +16,12 @@ def _req_hash() -> str:
 
 
 def venv_ok() -> bool:
+    # The marker alone is not enough: if the venv dir is deleted (to reclaim
+    # the multi-GB torch install) or its interpreter is broken by an OS python
+    # upgrade, a stale venv.ok would make setup report "already up to date"
+    # while the daemon can't start — an unrecoverable loop. Require both.
+    if not paths.venv_python().exists():
+        return False
     try:
         return paths.venv_ok_path().read_text().strip() == _req_hash()
     except OSError:

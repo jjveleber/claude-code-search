@@ -45,10 +45,13 @@ def ensure_daemon() -> bool:
     paths.ensure_home()
     log = open(paths.logs_dir() / "daemon.log", "a")
     env = dict(os.environ, PYTHONPATH=str(PLUGIN_ROOT))
-    subprocess.Popen([str(py), "-m", "engine.daemon"], env=env,
-                     stdout=log, stderr=subprocess.STDOUT,
-                     start_new_session=True)
-    log.close()   # child keeps its own inherited fd; don't leak ours in the parent
+    try:
+        subprocess.Popen([str(py), "-m", "engine.daemon"], env=env,
+                         stdout=log, stderr=subprocess.STDOUT,
+                         start_new_session=True)
+    finally:
+        log.close()   # child keeps its own inherited fd; don't leak ours in
+                      # the parent — even if Popen itself raises (bad exec)
     deadline = time.time() + 15
     while time.time() < deadline:
         try:
@@ -97,12 +100,17 @@ def unwatch(repo, session_pid):
         return {"ok": False, "error": "daemon not running"}
 
 
-def unwatch_all(repo):
-    """Drop the watch for `repo` regardless of session pid — used by
-    `disable`, which is never itself a registered session."""
+def unwatch_all(repo, rids=None):
+    """Drop the watches for `repo`'s whole family regardless of session pid —
+    used by `disable`, which is never itself a registered session. `rids` are
+    the family's worktree ids (from registry.disable) so the daemon stops and
+    closes every one before signalling the CLI it may purge their index dirs.
+
+    Timeout must exceed the daemon's queue-drain wait (120s): disable blocks
+    until any in-flight index finishes, so purge can't race a live writer."""
     try:
-        return request({"cmd": "unwatch_all", "repo": str(repo)},
-                       timeout=5.0)
+        return request({"cmd": "unwatch_all", "repo": str(repo), "rids": rids},
+                       timeout=130.0)
     except DaemonUnavailable:
         return {"ok": False, "error": "daemon not running"}
 

@@ -12,23 +12,42 @@ def csh(monkeypatch, tmp_path):
     paths.ensure_home()
 
 
-# --- venv_ok(): marker must match sha256 of requirements.txt (no mocks) ---
+def _fake_venv_python():
+    """Create a fake venv interpreter so venv_ok()'s existence check passes."""
+    py = paths.venv_python()
+    py.parent.mkdir(parents=True, exist_ok=True)
+    py.write_text("#!/bin/sh\n")
 
-def test_venv_ok_true_when_marker_matches_hash():
+
+# --- venv_ok(): marker matches sha256 of requirements.txt AND venv exists ---
+
+def test_venv_ok_true_when_marker_matches_and_venv_present():
+    _fake_venv_python()
     paths.venv_ok_path().write_text(setup_venv._req_hash())
     assert setup_venv.venv_ok() is True
 
 
 def test_venv_ok_false_when_marker_missing():
+    _fake_venv_python()
     assert setup_venv.venv_ok() is False
 
 
 def test_venv_ok_false_when_marker_stale():
+    _fake_venv_python()
     paths.venv_ok_path().write_text("not-the-hash")
     assert setup_venv.venv_ok() is False
 
 
+def test_venv_ok_false_when_venv_deleted_despite_marker():
+    # Marker survives but the venv dir was removed — must NOT report ok, else
+    # setup says "already up to date" while the daemon can't start.
+    paths.venv_ok_path().write_text(setup_venv._req_hash())
+    assert not paths.venv_python().exists()
+    assert setup_venv.venv_ok() is False
+
+
 def test_venv_ok_ignores_surrounding_whitespace():
+    _fake_venv_python()
     paths.venv_ok_path().write_text(f"  {setup_venv._req_hash()}\n")
     assert setup_venv.venv_ok() is True
 
@@ -41,11 +60,14 @@ class _Completed:
 
 
 def _fake_run(returncode_for_pip):
-    """Return a subprocess.run stub: venv-create succeeds, pip gets the given rc."""
+    """subprocess.run stub: `python -m venv` materializes the interpreter and
+    succeeds; pip gets the given returncode. Match on the pip *executable*
+    (cmd[0]), not a substring — the tmp_path can itself contain 'pip'."""
     def run(cmd, *a, **k):
-        if "pip" in " ".join(str(c) for c in cmd):
+        if str(cmd[0]).endswith("pip"):
             return _Completed(returncode_for_pip)
-        return _Completed(0)   # `python -m venv` (check=True) must succeed
+        _fake_venv_python()      # `python -m venv` (check=True) must succeed
+        return _Completed(0)
     return run
 
 
@@ -65,6 +87,7 @@ def test_main_leaves_no_marker_on_pip_failure(monkeypatch, capsys):
 
 
 def test_main_skips_build_when_already_ok(monkeypatch, capsys):
+    _fake_venv_python()
     paths.venv_ok_path().write_text(setup_venv._req_hash())
 
     def boom(*a, **k):

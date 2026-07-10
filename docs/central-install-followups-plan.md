@@ -63,7 +63,10 @@ Fold into related feature work, not standalone.
 ## Remaining after Wave 4 (all 4 waves DONE)
 1. ~~**#32 test debt** — write tests for the two live gaps above (setup_venv, CLI paths).~~ ✅ DONE (branch `test/issue-32-test-debt`; +9 setup_venv tests, +13 CLI tests; `tests/engine/` 92 green).
 2. **#31** — deferred, blocked on multi-model support. Kept open.
-3. **#27 (`feature/central-install`) → `main`** — the base branch is NOT yet merged; all 4 waves stack on it. Merge #27 to main, then re-target/close deferred items.
+3. **#27 (`feature/central-install`) → `main`** — the base branch is NOT yet merged; all 4 waves stack on it.
+   - ✅ **Adversarial review of PR #27 done (3 Fable reviewers: concurrency / search-status / bootstrap-migrate-leak).** Caught a CRITICAL (`disable --purge` racing the index worker) + ~a dozen real findings. Prior-wave fixes (#29/#30/#34/#35/#36/#37) all re-verified holding. Scope chosen: fix ALL real bugs.
+   - ✅ **Fixes in PR #46 (`fix/pr27-adversarial-review`), stacked on `feature/central-install`.** `tests/engine/` 99 green (+7). Covers: disable-purge torn-write, atomic bm25/model/langs writes, model-load-failure wedge, restart false-empty self-heal, swallowed-reindex warning, stale-flush resurrection, cmd_search auto-register, venv_ok existence check, migrate tracked-file skip + symlink venv + kill-wait, cmd_enable migrate guard, Popen fd leak, drain_handlers robustness.
+   - **NEXT: merge #46 → `feature/central-install`; then merge #27 → `main`; then re-target/close deferred items (#31).**
 
 ## Sequencing caveats
 - **#30 + #35 both touch daemon locking** — do them lock-order-aware (same person, ideally adjacent) to avoid re-touching twice.

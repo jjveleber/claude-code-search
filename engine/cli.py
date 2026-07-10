@@ -68,6 +68,10 @@ def cmd_search(args) -> int:
         else:
             print(resp.get("error", "search failed"), file=sys.stderr)
         return 1
+    if resp.get("warning"):
+        # results are usable but the last index update failed — don't let that
+        # pass silently (the reindex that failed already printed "queued").
+        print(resp["warning"], file=sys.stderr)
     if not resp["results"]:
         print("No results found.")
         return 2
@@ -84,7 +88,14 @@ def cmd_enable(args) -> int:
     if not args.dry_run and not _ensure_setup():
         print("setup failed; not enabling", file=sys.stderr)
         return 1
-    report = migrate.migrate(root, dry_run=args.dry_run)
+    try:
+        report = migrate.migrate(root, dry_run=args.dry_run)
+    except Exception as e:
+        print(f"migration of the old per-repo install failed: "
+              f"{type(e).__name__}: {e}\n"
+              f"  resolve it manually, then re-run 'code-search enable'",
+              file=sys.stderr)
+        return 1
     if report["evidence"]:
         print("Old per-repo install detected:")
         for k in ("trashed", "deleted", "skipped_tracked", "gitignore_cleaned", "killed"):
@@ -113,13 +124,22 @@ def cmd_disable(args) -> int:
         print("not a git repository", file=sys.stderr)
         return 1
     ids = registry.disable(root)
-    client.unwatch_all(root)
-    if args.purge:
+    res = client.unwatch_all(root, ids)
+    if not args.purge:
+        print(f"disabled ({len(ids)} worktree index(es) kept)")
+        return 0
+    # Purge only once the daemon confirms the index queue drained (ok), or when
+    # no daemon is running (nothing can be writing). If the daemon is still
+    # indexing, withhold — an rmtree racing the worker leaves a torn index.
+    if res.get("ok") or res.get("error") == "daemon not running":
         for rid in ids:
             shutil.rmtree(paths.index_dir(rid), ignore_errors=True)
-    print(f"disabled ({len(ids)} worktree index(es)"
-          f"{' purged' if args.purge else ' kept'})")
-    return 0
+        print(f"disabled ({len(ids)} worktree index(es) purged)")
+        return 0
+    print(f"disabled ({len(ids)} worktree index(es) kept); index still "
+          f"building — retry 'code-search disable --purge' shortly to purge",
+          file=sys.stderr)
+    return 1
 
 
 def cmd_status(args) -> int:
