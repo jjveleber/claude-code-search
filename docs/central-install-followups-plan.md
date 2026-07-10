@@ -54,7 +54,16 @@ Fold into related feature work, not standalone.
 - [x] Wave 2 index-failure follow-up (plan line 41): first index raising reported false `empty`. IndexQueue now tracks `_failed`; cmd_search returns new `index_error` status; cli points at reindex. Race: failure recorded + active_repo cleared in one lock section. (Sonnet)
 
 ## Cross-cutting
-- #32 test debt: **no standalone pass** — write the missing test as part of each wave (setup_venv, CLI paths, prune/idle-exit). Close #32 when the residue is empty or keep as tracking.
+- #32 test debt: **still OPEN after Wave 4.** Residue verified 2026-07-09:
+  - ❌ `engine/setup_venv.py` — success-only `venv.ok` invariant, ZERO test coverage. Live gap.
+  - ❌ CLI `status`/`gc`/`reindex`/`setup`/`--dry-run` + every `except client.DaemonUnavailable` branch (cli.py 4 sites) + search-status message mapping (`warming`/`empty`/`timeout`/`index_error`) — untested. test_cli.py covers only enable / enable-outside-git / search-not-enabled / search-match-format / disable-purge. Live gap.
+  - ✅ prune / idle-exit — now covered (`test_prune_loop_waits_for_active_queue_job`, `..._idle_exits_...`, Waves 2/3). Strike from #32.
+  - ⚪ log-rotation — no rotation feature exists (`daemon.log` is plain append). Moot until built. Strike from #32.
+
+## Remaining after Wave 4 (all 4 waves DONE)
+1. **#32 test debt** — write tests for the two live gaps above (setup_venv, CLI paths). Opportunistic, non-blocking. Model: Haiku/Sonnet.
+2. **#31** — deferred, blocked on multi-model support. Kept open.
+3. **#27 (`feature/central-install`) → `main`** — the base branch is NOT yet merged; all 4 waves stack on it. Merge #27 to main, then re-target/close deferred items.
 
 ## Sequencing caveats
 - **#30 + #35 both touch daemon locking** — do them lock-order-aware (same person, ideally adjacent) to avoid re-touching twice.
