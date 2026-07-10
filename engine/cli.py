@@ -62,6 +62,9 @@ def cmd_search(args) -> int:
         elif status == "timeout":
             print("timed out waiting for the index to warm up — try again shortly",
                   file=sys.stderr)
+        elif status == "index_error":
+            print(f"index build failed: {resp.get('error', '')} — run "
+                  f"'code-search reindex' to retry", file=sys.stderr)
         else:
             print(resp.get("error", "search failed"), file=sys.stderr)
         return 1
@@ -84,7 +87,7 @@ def cmd_enable(args) -> int:
     report = migrate.migrate(root, dry_run=args.dry_run)
     if report["evidence"]:
         print("Old per-repo install detected:")
-        for k in ("trashed", "skipped_tracked", "gitignore_cleaned", "killed"):
+        for k in ("trashed", "deleted", "skipped_tracked", "gitignore_cleaned", "killed"):
             if report[k]:
                 print(f"  {k}: {report[k]}")
         if report["skipped_tracked"]:

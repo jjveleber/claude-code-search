@@ -147,3 +147,67 @@ def test_dead_pid_does_not_crash_migrate(tmp_path, monkeypatch):
     report = migrate.migrate(repo)  # must not raise
     assert report["evidence"]
     assert pid not in report["killed"]
+
+
+def test_venv_deleted_not_trashed(tmp_path):
+    """Issue #39: .venv-code-search should be deleted, not moved to trash."""
+    repo = make_repo(tmp_path)
+    old_install(repo)
+    # Create a .venv-code-search directory (untracked)
+    venv_path = repo / ".venv-code-search"
+    venv_path.mkdir()
+    (venv_path / "pyvenv.cfg").write_text("home = /usr/bin\n")
+
+    report = migrate.migrate(repo)
+
+    # Venv should be deleted, not trashed
+    assert ".venv-code-search" in report["deleted"]
+    assert ".venv-code-search" not in report["trashed"]
+    assert not venv_path.exists()
+
+    # Verify it's not in the trash directory either
+    trash = paths.trash_dir()
+    assert not any(trash.rglob(".venv-code-search"))
+
+
+def test_mixed_hooks_in_matcher_block(tmp_path):
+    """Issue #34: filter individual hooks, not whole matcher-block."""
+    repo = make_repo(tmp_path)
+    old_install(repo)
+
+    # Override settings.local.json with a block containing both our hook and user's hook
+    (repo / ".claude" / "settings.local.json").write_text(json.dumps({
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": {"type": "tools", "tools": ["Bash"]},
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "/usr/local/bin/watch_index.py pre-tool"
+                        },
+                        {
+                            "type": "command",
+                            "command": "/my/own/hook.sh"
+                        }
+                    ]
+                }
+            ]
+        }
+    }))
+
+    report = migrate.migrate(repo)
+
+    # Settings should be cleaned
+    assert report["settings_cleaned"]
+
+    # Read the cleaned settings
+    settings = json.loads((repo / ".claude" / "settings.local.json").read_text())
+
+    # The block should still exist because user's hook remains
+    assert "PreToolUse" in settings["hooks"]
+
+    # The block should have only the user's hook
+    block = settings["hooks"]["PreToolUse"][0]
+    assert len(block["hooks"]) == 1
+    assert block["hooks"][0]["command"] == "/my/own/hook.sh"
