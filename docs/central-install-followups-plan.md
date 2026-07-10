@@ -46,7 +46,7 @@ Highest judgment. Each fix needs a real-daemon test. Aware of lock-order with #3
 - [x] #36 _load_bm25 flag-before-corpus, no lock. Double-checked lock; build into local, set flag LAST.
 - [x] #37 daemon shutdown kills handler threads mid-response. Track handler threads; drain_handlers() bounded-join at shutdown before teardown.
 
-## Wave 4 — latent / degenerate today  ·  model: Haiku/Sonnet, opportunistic  ·  🔶 IN REVIEW (branch wave4-followups)
+## Wave 4 — latent / degenerate today  ·  model: Haiku/Sonnet, opportunistic  ·  ✅ DONE (PR #44 merged; adversarial review caught venv-rmtree false-report, fixed)
 Fold into related feature work, not standalone.
 - [ ] #31 warmup hardcodes CodeRankEmbed — **DEFERRED, kept open:** blocked on multi-model support (only CodeRankEmbed exists); fix WITH it, not before.
 - [x] #34 migrate _clean_settings whole-block match — now filters per-hook-command; co-mingled user hook in same block survives. (Haiku)
